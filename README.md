@@ -146,60 +146,63 @@ See [Commands Reference](#commands-reference) for the full table with per-role a
 ### Flow Diagram
 
 ```mermaid
-flowchart LR
-    classDef anyNode   fill:#dcfce7,stroke:#16a34a,color:#14532d
-    classDef adminNode fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+flowchart TD
+    classDef adminNode  fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
     classDef masterNode fill:#fce7f3,stroke:#db2777,color:#831843
-    classDef storeNode fill:#f1f5f9,stroke:#64748b,color:#0f172a
-    classDef checkNode fill:#fef9c3,stroke:#ca8a04,color:#713f12
-    classDef failNode  fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    classDef storeNode  fill:#f1f5f9,stroke:#64748b,color:#0f172a
+    classDef checkNode  fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef failNode   fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
 
-    subgraph SETUP["⚙️  Stage 0 — One-Time Setup  (master)"]
-        direction TB
-        mk["sudo mkdir /scratch/admin/spack\nsudo chown master:$SPACK_DEPLOY_GROUP\nsudo chmod 2775"]:::masterNode
-        kb["spackon --keys create\nspackon --keys export\n(each admin, once)"]:::adminNode
-        kt["spackon --keys trust\n(master approves)"]:::masterNode
+    subgraph SETUP["⚙️ Stage 0: Setup"]
+        mk["mkdir /scratch/admin/spack · chmod 2775 · chown master:SPACK_DEPLOY_GROUP"]:::masterNode
+        kb["spackon --keys create · spackon --keys export · each admin runs once"]:::adminNode
+        kt["spackon --keys trust · master approves all exported keys"]:::masterNode
         mk --> kb --> kt
     end
 
-    subgraph S1["🔨  Stage 1 — Build  (any admin)"]
-        direction TB
-        s1a["export SPACK_ROOT=/scratch/admin/spack\nspackon"]:::adminNode
-        s1b["spack env create locally\nspack add pkg@ver\nspack concretize -f"]:::adminNode
-        s1c["spackon -i locally\nSLURM · 8 cores · 4 h"]:::adminNode
+    subgraph S1["🔨 Stage 1: Build"]
+        s1a["export SPACK_ROOT=/scratch/admin/spack · spackon"]:::adminNode
+        s1b["spack env create locally · spack add pkg@ver · spack concretize -f"]:::adminNode
+        s1c["spackon -i locally · SLURM: 8 cores · 4 h · builds into scratch"]:::adminNode
         s1a --> s1b --> s1c
     end
 
-    scratch[("📁 /scratch/admin/spack\n✓ package built")]:::storeNode
+    scratch[("📁 /scratch/admin/spack · package installed")]:::storeNode
 
-    subgraph S2["📦  Stage 2 — Cache Push  (admin + GPG key)"]
-        direction TB
+    subgraph S2["📦 Stage 2: Cache Push"]
         s2a["spackon --cache-push pkg@ver"]:::adminNode
-        s2chk{"• $SPACK_DEPLOY_GROUP member?\n• has signing key?\n• correct $SPACK_SCOPE?\n• confirm push?"}:::checkNode
-        s2ok["✓ signed & pushed"]:::adminNode
-        s2fail["✗ aborted"]:::failNode
+        s2chk{"SPACK_DEPLOY_GROUP member? · has signing key? · correct scope? · confirm?"}:::checkNode
+        s2ok["✓ signed and pushed to arch buildcache"]:::adminNode
+        s2fail["✗ aborted · fix group / key / scope first"]:::failNode
         s2a --> s2chk
         s2chk -->|pass| s2ok
         s2chk -->|fail| s2fail
     end
 
-    cache[("📦 arch buildcache\nsigned · verified")]:::storeNode
+    cache[("📦 arch buildcache · signed · verified")]:::storeNode
 
-    subgraph S3["🚀  Stage 3 — Deploy  (admin + trusted key)"]
-        direction TB
-        s3a["spackon --keys trust"]:::adminNode
-        s3b["spackon --deploy pkg@ver\nSLURM · --use-buildcache only"]:::adminNode
+    subgraph S3["🚀 Stage 3: Deploy"]
+        s3a["spackon --keys trust · trust all keys in SPACK_KEYSPOT"]:::adminNode
+        s3b["spackon --deploy pkg@ver · SLURM · --use-buildcache only · no source build"]:::adminNode
         s3a --> s3b
     end
 
-    tree[("🌲 $SPACK_INSTALL_TREE\ngcc/ver/pkg/ver-hash\n✓ live for all users")]:::storeNode
+    tree[("🌲 SPACK_INSTALL_TREE / gcc/ver/pkg/ver-hash · live for all users")]:::storeNode
 
-    SETUP --> S1
-    s1c    --> scratch
+    SETUP   --> S1
+    s1c     --> scratch
     scratch --> s2a
-    s2ok   --> cache
-    cache  --> s3a
-    s3b    --> tree
+    s2ok    --> cache
+    cache   --> s3a
+    s3b     --> tree
+
+    style SETUP   min-width:840px
+    style S1      min-width:840px
+    style S2      min-width:840px
+    style S3      min-width:840px
+    style scratch min-width:840px
+    style cache   min-width:840px
+    style tree    min-width:840px
 ```
 
 ---
