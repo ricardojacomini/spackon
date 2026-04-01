@@ -33,7 +33,7 @@ if [ ! -f "${ARCH_SCOPE}/init" ]; then
 # Central configuration for all spackon settings.
 # Edit this file to change any path, group, or URL.
 
-SPACK_DEPLOY_GROUP=spack
+SPACK_DEPLOY_GROUP=spack           # or admin make sure that group was created
 SPACK_ADMIN_USER=master
 SPACK_INSTALL_TREE=/apps/software/spack/intel
 SPACK_INSTALL_TREE_AMD=/apps/software/spack/amd

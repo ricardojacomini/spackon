@@ -5,9 +5,9 @@
 ### Date: Jul, 18 2022
 
 > **DISCLAIMER**
-> This script is intended for use on and by the HPC Scientific Software team,
-> at Research Computing at Johns Hopkins University. It is currently in development stage.
-> Use at your own risk.
+> This script is designated for use exclusively by the HPC Scientific Software team 
+> within Research Computing at Johns Hopkins University. It remains in the developmental phase. 
+> Usage is at your own risk.
 
 ---
 
@@ -31,7 +31,7 @@
 - [Mirrors](#mirrors)
 - [GPG Key Management](#gpg-key-management)
 - [What Keeps install_tree Clean](#what-keeps-install_tree-clean)
-- [Admin Operations](#admin-operations-help-all-root)
+- [Admin Operations](#admin-operations-help-all-admin)
 
 ---
 
@@ -387,7 +387,7 @@ spackon --deploy --env locally
 | `spackon -u`                       | anyone        | Update spack to latest stable release                        |
 | `spackon -u dev`                   | anyone        | Update spack to develop branch                               |
 | `help-all`                         | anyone        | Full help inside spackon subshell                            |
-| `help-all-root`                    | admin         | Admin operations help                                        |
+| `help-all-admin`                    | admin         | Admin operations help                                        |
 
 ---
 
