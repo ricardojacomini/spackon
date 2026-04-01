@@ -79,7 +79,7 @@ usage: ${PROGNAME} [-hacir]
     -h | --help         Display this help message
     help-all            Full help: mirrors, build cache, config scopes, admin options
     -a | --activate     Activate the Spack after installation (Default)
-                        NOTE: Use EXIT to return to Rockfish, after spack on!
+                        NOTE: Use EXIT to return to ARCH, after spack on!
     -c | --create       Setup Spack inside user directory
     -i | --install      Install packages using a SLURM job ( Default: locally environment )
                         Note: You can install using another env.
@@ -103,9 +103,9 @@ usage: ${PROGNAME} [-hacfrim]
 
     -h | --help         Display this help message
     -a | --activate     Activate the Spack after installation (Default)
-                        NOTE: Use EXIT to return to Rockfish, after spack on!
+                        NOTE: Use EXIT to return to ARCH, after spack on!
     -c | --create       Setup Spack inside user directory
-    -f                  Add specs (packages) and compilers detected on the Rockfish
+    -f                  Add specs (packages) and compilers detected on the ARCH
                         You may add parameters related another spack installation path.
                         (Default: /apps/linux-centos8-intel)
                         e.g.: ${PROGNAME} -f /apps/linux-centos8-intel/
@@ -114,16 +114,16 @@ usage: ${PROGNAME} [-hacfrim]
                         Note: You can install using another env.
                               ${PROGNAME} -i my_env
 
-    -i -push            Install locally then push built packages to rockfish buildcache mirror.
+    -i -push            Install locally then push built packages to ARCH buildcache mirror.
                               ${PROGNAME} -i -push
 
-    -i | --install -rf  If you are in admin group, and want to install packages on Rockfish system using a SLURM job.
+    -i | --install -rf  If you are in admin group, and want to install packages on ARCH system using a SLURM job.
                         It will install with Custom Scope of install_tree: ${SPACK_INSTALL_TREE}
 
                         e.g.: ${PROGNAME} -i -rf
                               ${PROGNAME} -i my_env -rf
 
-    -i -rf-push         Install with intel scope (shared install_tree) then push built packages to rockfish buildcache.
+    -i -rf-push         Install with intel scope (shared install_tree) then push built packages to ARCH buildcache.
                               ${PROGNAME} -i -rf-push
 
 ── admin 3-stage collaborative workflow ──────────────────────────────────────
@@ -133,13 +133,13 @@ usage: ${PROGNAME} [-hacfrim]
     Stage 3 — admin with GPG key: deploy from cache to shared install_tree
 
     --cache-push <pkg>@<ver>
-                        Push a specific package (built with intel scope) to rockfish cache.
+                        Push a specific package (built with intel scope) to ARCH cache.
                         Requires admin group + GPG key. Shows preview before pushing.
                         e.g.: ${PROGNAME} --cache-push python@3.11.9
                               ${PROGNAME} --cache-push --env locally   (push full env)
 
     --deploy <pkg>@<ver>
-                        Deploy a signed package from rockfish cache → ${SPACK_INSTALL_TREE}
+                        Deploy a signed package from ARCH cache → ${SPACK_INSTALL_TREE}
                         Requires admin group + trusted GPG key. Uses --use-buildcache only.
                         e.g.: ${PROGNAME} --deploy python@3.11.9
                               ${PROGNAME} --deploy --env locally        (deploy full env)
@@ -169,7 +169,7 @@ EOF
 
   Use -C /apps/helpers/spack/intel or -C /apps/helpers/spack/amd to switch targets.
 
-── Installing packages on Rockfish manually ────────────────────────────────────
+── Installing packages on ARCH manually ────────────────────────────────────
 
   spack -C /apps/helpers/spack/intel/ config get config   ( verify install_tree )
   spack -C /apps/helpers/spack/intel/ find -pl
@@ -200,7 +200,7 @@ EOF
   Install from buildcache only (fail if not cached):
     spack -C /apps/helpers/spack/intel/ install --use-buildcache only python@3.11
 
-  Push a built package to the local Rockfish mirror:
+  Push a built package to the local ARCH mirror:
     spackon --cache-push python@3.11    # safe: intel scope check + dry-run confirm
 
   Trust buildcache signing keys:
@@ -378,7 +378,7 @@ cat > /apps/helpers/spack/intel/config.yaml << \EOF
 config:
   sbang_path: ${SPACK_ROOT}/bin
   install_tree:
-    # if you are in admin group, and want to install packages on Rockfish system
+    # if you are in admin group, and want to install packages on ARCH system
     # spack -C ${SPACK_ROOT}/arch config get config
     root: ${SPACK_INSTALL_TREE}
 EOF
@@ -573,7 +573,7 @@ EOF
 
   echo "${COUNT} packages were added."
 
-  echo -e "\nSearching for additional external software on Rockfish..."
+  echo -e "\nSearching for additional external software on ARCH..."
   spack external find --all --not-buildable
 
   sleep 3
@@ -773,7 +773,7 @@ function Activate_Spack ()
         echo "\$ spack module lmod refresh 'package_name'"
         echo "\$ spack debug report"
         echo " ";
-        echo "Please, type EXIT to return to Rockfish system." ;
+        echo "Please, type EXIT to return to ARCH system." ;
         echo " ";
  ")
 
@@ -1030,7 +1030,7 @@ function usage_root {
 ── Full deploy workflow ─────────────────────────────────────────────────────────
 
   ${SPACK_ADMIN_USER} only (has signing key + owns install_tree):
-    spackon -i -rf-push    →  install to tree + sign + push to rockfish cache
+    spackon -i -rf-push    →  install to tree + sign + push to ARCH cache
 
   any admin user (read access, trusted key):
     spackon --keys trust
@@ -1091,7 +1091,7 @@ function spack_cache_push ()
   fi
 
   echo ""
-  echo "==> Dry-run: packages to push to rockfish cache:"
+  echo "==> Dry-run: packages to push to ARCH cache:"
   spack -C ${SPACK_ARCH} buildcache list --allarch $ARG 2>/dev/null || \
     spack -C ${SPACK_ARCH} find -lv $ARG 2>/dev/null
   echo ""
@@ -1125,11 +1125,11 @@ function spack_deploy ()
 
   if [ "$ARG" = "--env" ]; then
     local ENV="${3:-locally}"
-    echo "==> Deploying all packages in env '$ENV' from rockfish cache → install_tree"
+    echo "==> Deploying all packages in env '$ENV' from ARCH cache → install_tree"
     sbatch -c 8 -t 120 --wrap="spack env activate ${ENV}; \
       spack -C ${SPACK_ARCH} install --use-buildcache only -j 8"
   else
-    echo "==> Deploying $ARG from rockfish cache → ${SPACK_INSTALL_TREE}"
+    echo "==> Deploying $ARG from ARCH cache → ${SPACK_INSTALL_TREE}"
     echo "    (will fail if package is unsigned or key not trusted)"
     sbatch -c 8 -t 120 --wrap="spack -C ${SPACK_ARCH} install --use-buildcache only $ARG"
   fi

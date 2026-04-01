@@ -46,7 +46,7 @@ help-all-root
 
 ## For Regular Users (non-admin)
 
-You do not need to be a member of the `admin` group to use `spackon`. Regular Rockfish users can:
+You do not need to be a member of the `admin` group to use `spackon`. Regular ARCH users can:
 
 1. **Use pre-installed software** — packages deployed by admin are available in the shared module tree without any spack setup.
 2. **Install a personal spack** — build and manage your own packages in your home directory.
@@ -450,8 +450,8 @@ spackon --cache-push python@3.11.9
 #### Check permissions on arch mirror
 ```bash
 stat /apps/software/spack/mirror-spack/build_cache | grep -E 'Uid|Gid|Access:'
-# Expected: ${SPACK_ADMIN_USER}:admin  2775 (drwxrwsr-x)
 ```
+#### Expected: ${SPACK_ADMIN_USER}:admin  2775 (drwxrwsr-x)
 
 > `arch` is the single active mirror — all new builds push here.
 > `signed: true` enforces GPG verification before any package enters the shared install_tree.
@@ -562,7 +562,7 @@ inherit the admin group and are group-writable.
 > (`spack/setup-spack@v2` GitHub Action with an automatic shared binary cache) is a different paradigm —
 > it is designed for ephemeral CI runners, not a shared HPC install tree. These two approaches are not
 > directly comparable. **We need to evaluate whether a SLURM-based workflow (current) or a CI-driven
-> workflow is the right long-term model for Rockfish.**
+> workflow is the right long-term model for ARCH.**
 
 ---
 
