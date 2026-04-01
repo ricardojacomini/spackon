@@ -42,7 +42,7 @@ help-all-root
 
 ---
 
-## For Regular Users (non-spack)
+## For Regular Users (non-admin)
 
 You do not need to be a member of the `admin` group to use `spackon`. Regular Rockfish users can:
 
