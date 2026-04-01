@@ -3,6 +3,13 @@
 > HPC · ARCH · Johns Hopkins University
 > Maintainer: ${SPACK_ADMIN_USER}@jhu.edu
 
+# ============================================================================
+# DISCLAIMER:
+# This script is intended for use on and by the HPC Scientific Software team,
+# at Research Computing at Hopkins University. It is currently in development stage.
+# Use at your own risk.
+# ============================================================================
+
 `spackon` is a bash wrapper around [Spack](https://spack.readthedocs.io) that manages software installation, shared build caches, and GPG-signed deployments to the ARCH shared software stack. It automatically detects the CPU architecture (Intel or AMD) at runtime and selects the matching config scope and install tree.
 
 ---
