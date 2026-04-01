@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>spackon — 3-Stage Workflow</title>
+  <style>
+    :root {
+      --admin-bg: #dbeafe; --admin-bd: #2563eb; --admin-tx: #1e3a8a;
+      --master-bg:#fce7f3; --master-bd:#db2777; --master-tx:#831843;
+      --store-bg: #f1f5f9; --store-bd: #64748b; --store-tx: #0f172a;
+      --check-bg: #fef9c3; --check-bd: #ca8a04; --check-tx: #713f12;
+      --fail-bg:  #fee2e2; --fail-bd:  #dc2626; --fail-tx:  #7f1d1d;
+      --stage-bg: #1e293b; --stage-hd: #334155; --stage-bd: #475569;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f8fafc;
+      padding: 2rem;
+      color: #1e293b;
+    }
+
+    h1 { font-size: 1.3rem; font-weight: 700; color: #0f172a; margin-bottom: .25rem; }
+    .subtitle { font-size: .82rem; color: #64748b; margin-bottom: 2rem; }
+
+    /* ── outer flow ── */
+    .flow {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    /* ── stage box ── */
+    .stage {
+      width: 100%;
+      border: 2px solid var(--stage-bd);
+      border-radius: 10px;
+      background: var(--stage-bg);
+      overflow: hidden;
+    }
+    .stage-title {
+      background: var(--stage-hd);
+      color: #f1f5f9;
+      font-size: .85rem;
+      font-weight: 600;
+      padding: .45rem 1rem;
+    }
+    .stage-title span { font-weight: 400; color: #94a3b8; }
+
+    /* ── horizontal row of nodes ── */
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: .9rem 1rem;
+      gap: 0;
+    }
+
+    /* ── node box ── */
+    .node {
+      border-radius: 6px;
+      border-width: 2px;
+      border-style: solid;
+      padding: .55rem .75rem;
+      font-size: .78rem;
+      line-height: 1.45;
+      text-align: center;
+      flex: 1;
+    }
+    .node.admin  { background:var(--admin-bg);  border-color:var(--admin-bd);  color:var(--admin-tx); }
+    .node.master { background:var(--master-bg); border-color:var(--master-bd); color:var(--master-tx); }
+    .node.ok     { background:var(--admin-bg);  border-color:var(--admin-bd);  color:var(--admin-tx); }
+    .node.fail   { background:var(--fail-bg);   border-color:var(--fail-bd);   color:var(--fail-tx); }
+
+    /* ── diamond ── */
+    .diamond-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: .5rem 0;
+    }
+    .diamond {
+      width: 110px; height: 110px;
+      background: var(--check-bg);
+      border: 2px solid var(--check-bd);
+      transform: rotate(45deg);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .diamond-text {
+      transform: rotate(-45deg);
+      font-size: .68rem;
+      color: var(--check-tx);
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    /* ── S2 inner layout ── */
+    .s2-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: .9rem 1rem;
+      gap: 0;
+    }
+    .branches {
+      display: flex;
+      gap: 2.5rem;
+      align-items: flex-start;
+      margin-top: .5rem;
+    }
+    .branch {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: .2rem;
+    }
+    .branch-label {
+      font-size: .7rem;
+      color: #94a3b8;
+      font-style: italic;
+    }
+    .branch .node { min-width: 160px; flex: none; }
+
+    /* ── arrows ── */
+    .arr-h { color: #64748b; font-size: 1.3rem; padding: 0 .4rem; flex-shrink: 0; }
+    .arr-v { color: #64748b; font-size: 1.5rem; line-height: 1; padding: .25rem 0; }
+
+    /* ── storage cylinder ── */
+    .store {
+      background: var(--store-bg);
+      border: 2px solid var(--store-bd);
+      color: var(--store-tx);
+      border-radius: 999px;
+      padding: .45rem 1.4rem;
+      font-size: .78rem;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    /* ── legend ── */
+    .legend {
+      margin-top: 1.8rem;
+      max-width: 860px;
+      margin-left: auto;
+      margin-right: auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem 1.8rem;
+      font-size: .8rem;
+      color: #475569;
+    }
+    .legend span { display: flex; align-items: center; gap: .35rem; }
+    .sw {
+      width: 13px; height: 13px;
+      border-radius: 3px;
+      border: 1px solid rgba(0,0,0,.2);
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+
+<h1>spackon — 3-Stage Collaborative Workflow</h1>
+<p class="subtitle">ARCH HPC · Johns Hopkins University · <code>$SPACK_DEPLOY_GROUP</code> controls admin access · <code>$SPACK_ADMIN_USER</code> is master</p>
+
+<div class="flow">
+
+  <!-- Stage 0 -->
+  <div class="stage">
+    <div class="stage-title">⚙️ Stage 0: Setup &nbsp;<span>— master, once</span></div>
+    <div class="row">
+      <div class="node master">mkdir /scratch/admin/spack<br>chmod 2775<br>chown master:SPACK_DEPLOY_GROUP</div>
+      <div class="arr-h">→</div>
+      <div class="node admin">spackon --keys create<br>spackon --keys export<br>each admin runs once</div>
+      <div class="arr-h">→</div>
+      <div class="node master">spackon --keys trust<br>master approves all<br>exported keys</div>
+    </div>
+  </div>
+
+  <div class="arr-v">↓</div>
+
+  <!-- Stage 1 -->
+  <div class="stage">
+    <div class="stage-title">🔨 Stage 1: Build &nbsp;<span>— any admin</span></div>
+    <div class="row">
+      <div class="node admin">export SPACK_ROOT=<br>/scratch/admin/spack<br>spackon</div>
+      <div class="arr-h">→</div>
+      <div class="node admin">spack env create locally<br>spack add pkg@ver<br>spack concretize -f</div>
+      <div class="arr-h">→</div>
+      <div class="node admin">spackon -i locally<br>SLURM: 8 cores / 4 h<br>builds into scratch</div>
+    </div>
+  </div>
+
+  <div class="arr-v">↓</div>
+  <div class="store">📁 /scratch/admin/spack &nbsp;·&nbsp; package installed</div>
+  <div class="arr-v">↓</div>
+
+  <!-- Stage 2 -->
+  <div class="stage">
+    <div class="stage-title">📦 Stage 2: Cache Push &nbsp;<span>— admin + GPG key</span></div>
+    <div class="s2-inner">
+      <div class="node admin" style="min-width:220px;flex:none">spackon --cache-push pkg@ver</div>
+      <div class="arr-v">↓</div>
+      <div class="diamond-wrap">
+        <div class="diamond">
+          <div class="diamond-text">group member?<br>has signing key?<br>correct scope?<br>confirm?</div>
+        </div>
+      </div>
+      <div class="arr-v">↓</div>
+      <div class="branches">
+        <div class="branch">
+          <div class="branch-label">✓ pass</div>
+          <div class="node ok">✓ signed and pushed<br>to arch buildcache</div>
+        </div>
+        <div class="branch">
+          <div class="branch-label">✗ fail</div>
+          <div class="node fail">✗ aborted<br>fix group / key / scope</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arr-v">↓</div>
+  <div class="store">📦 arch buildcache &nbsp;·&nbsp; signed · verified</div>
+  <div class="arr-v">↓</div>
+
+  <!-- Stage 3 -->
+  <div class="stage">
+    <div class="stage-title">🚀 Stage 3: Deploy &nbsp;<span>— admin + trusted key</span></div>
+    <div class="row">
+      <div class="node admin">spackon --keys trust<br>trust all keys<br>in SPACK_KEYSPOT</div>
+      <div class="arr-h">→</div>
+      <div class="node admin">spackon --deploy pkg@ver<br>SLURM · --use-buildcache only<br>no source build</div>
+    </div>
+  </div>
+
+  <div class="arr-v">↓</div>
+  <div class="store">🌲 SPACK_INSTALL_TREE &nbsp;·&nbsp; gcc/ver/pkg/ver-hash &nbsp;·&nbsp; live for all users</div>
+
+</div>
+
+<!-- Legend -->
+<div class="legend">
+  <span><div class="sw" style="background:var(--admin-bg);border-color:var(--admin-bd)"></div> Blue — <code>$SPACK_DEPLOY_GROUP</code> member (any admin)</span>
+  <span><div class="sw" style="background:var(--master-bg);border-color:var(--master-bd)"></div> Pink — <code>$SPACK_ADMIN_USER</code> (master) only</span>
+  <span><div class="sw" style="background:var(--store-bg);border-color:var(--store-bd)"></div> Grey — storage / filesystem</span>
+  <span><div class="sw" style="background:var(--check-bg);border-color:var(--check-bd)"></div> Yellow — decision / check gate</span>
+  <span><div class="sw" style="background:var(--fail-bg);border-color:var(--fail-bd)"></div> Red — failure / abort path</span>
+</div>
+
+</body>
+</html>
