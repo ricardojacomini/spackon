@@ -52,10 +52,10 @@ source "${ARCH_SCOPE}/init"
 # Auto-detect CPU architecture scope (mirrors modulefile Lua detection)
 _cpu_vendor=$(lscpu 2>/dev/null | awk '/Vendor ID/ {print $3}')
 if [[ "$_cpu_vendor" == *"AMD"* ]]; then
-    SPACK_ARCH=${ARCH_SCOPE}/amd
+    SPACK_SCOPE=${ARCH_SCOPE}/amd
     SPACK_INSTALL_TREE=${SPACK_INSTALL_TREE_AMD}
 else
-    SPACK_ARCH=${ARCH_SCOPE}/intel
+    SPACK_SCOPE=${ARCH_SCOPE}/intel
 fi
 unset _cpu_vendor
 
@@ -64,7 +64,7 @@ spack_stage_and_cd ()
     if spack list $1 &> /dev/null; then
         spack stage $1;
         spack cd $1;
-        echo -e "run: \nspack -C ${SPACK_ARCH} build-env $1 ./configure";
+        echo -e "run: \nspack -C ${SPACK_SCOPE} build-env $1 ./configure";
     else
         echo "Package not found in Spack.";
     fi
@@ -101,6 +101,12 @@ EOF
 }
 
 function usage_admin {
+  if ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx "$SPACK_DEPLOY_GROUP"; then
+    echo "Error!! 'help-all' admin view is restricted to ${SPACK_DEPLOY_GROUP} group members."
+    echo "        You are: ${USER}"
+    usage
+    exit 1
+  fi
 
   1>&2 cat <<EOF
 
@@ -312,22 +318,22 @@ function spack_update ()
   echo "$ENVS"
 
   # Restore arch config — scopes now live in $ARCH_SCOPE (shared, not in $SPACK_ROOT)
-  if [ -d "$SPACK_ARCH" ]; then
-    echo "Using shared intel config from $SPACK_ARCH"
+  if [ -d "$SPACK_SCOPE" ]; then
+    echo "Using shared intel config from $SPACK_SCOPE"
   elif compgen -G "$NEW_DIR_NAME/intel*" > /dev/null 2>&1; then
     echo "Restoring intel config from backup to $ARCH_SCOPE ..."
     mkdir -p "$ARCH_SCOPE"
     cp -rpa "$NEW_DIR_NAME"/intel* "$ARCH_SCOPE"/
     cp -rpa "$NEW_DIR_NAME"/amd* "$ARCH_SCOPE"/ 2>/dev/null || true
   else
-    echo "Warning: intel config not found — recreating $SPACK_ARCH/config.yaml"
-    mkdir -p "$SPACK_ARCH"
-    cat > "$SPACK_ARCH/config.yaml" << RFEOF
+    echo "Warning: intel config not found — recreating $SPACK_SCOPE/config.yaml"
+    mkdir -p "$SPACK_SCOPE"
+    cat > "$SPACK_SCOPE/config.yaml" << RFEOF
 config:
   sbang_path: \${SPACK_ROOT}/bin
   install_tree:
-    # admin shared install tree — use: spack -C ${SPACK_ARCH}
-    # spack -C ${SPACK_ARCH} config get config
+    # admin shared install tree — use: spack -C ${SPACK_SCOPE}
+    # spack -C ${SPACK_SCOPE} config get config
     root: ${SPACK_INSTALL_TREE}
     projections:
       all: "{compiler.name}/{compiler.version}/{name}/{version}-{hash:7}"
@@ -339,7 +345,7 @@ config:
   shared_linking:
     type: rpath
 RFEOF
-    cat > "$SPACK_ARCH/mirrors.yaml" << RFEOF
+    cat > "$SPACK_SCOPE/mirrors.yaml" << RFEOF
 mirrors:
   spack-public:
     url: ${SPACK_MIRROR_PUBLIC}
@@ -348,8 +354,8 @@ mirrors:
     url: ${SPACK_MIRROR_ARCH}
     signed: true
 RFEOF
-    echo "  Created: $SPACK_ARCH/config.yaml"
-    echo "  Created: $SPACK_ARCH/mirrors.yaml"
+    echo "  Created: $SPACK_SCOPE/config.yaml"
+    echo "  Created: $SPACK_SCOPE/mirrors.yaml"
   fi
 
   Spack_Up
@@ -737,8 +743,8 @@ function Activate_Spack ()
 	export -f spack_stage_and_cd
         export -f help-all
         export -f spack_keys
-        export -f usage_root
-        help-all-admin () { usage_root; }
+        export -f usage_master
+        help-all-admin () { usage_master; }
         export -f help-all-admin
         bash --init-file <(
         echo "
@@ -759,6 +765,7 @@ function Activate_Spack ()
         #export MODULEPATH=$MODULEPATH:/apps/v2/a/lmod/Core:${HOME}/modulefiles/lmod;
         export LMOD_IGNORE_CACHE=1;
 
+        export SPACK_SCOPE=${SPACK_SCOPE}
         source ${SPACK_ROOT}/share/spack/setup-env.sh
         echo " ";
         echo "You are in the spack, please activate an environment!"
@@ -815,7 +822,7 @@ function Install_Packages ()
     fi
     sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack install -j 8 && spack buildcache push arch \$(spack find --no-groups --format '/{hash}')"
   elif [[ ( $@ == "-i -rf" ) ]]; then
-    sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack -C ${SPACK_ARCH} install -j 8"
+    sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack -C ${SPACK_SCOPE} install -j 8"
   elif [[ ( $@ == "-i -rf-push" ) ]]; then
     if [[ "${USER}" != "${SPACK_ADMIN_USER}" ]]; then
       echo "Error!! '-i -rf-push' is restricted to ${SPACK_ADMIN_USER}."; exit 1
@@ -823,11 +830,11 @@ function Install_Packages ()
     if ! spack gpg list 2>/dev/null | grep -q 'sec\|pub'; then
       echo "Error!! No GPG key found. Run: spackon --keys create"; exit 1
     fi
-    sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack -C ${SPACK_ARCH} install -j 8 && spack -C ${SPACK_ARCH} buildcache push arch \$(spack find --no-groups --format '/{hash}')"
+    sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack -C ${SPACK_SCOPE} install -j 8 && spack -C ${SPACK_SCOPE} buildcache push arch \$(spack find --no-groups --format '/{hash}')"
   elif [[ ( $@ == *'-rf'* ) && ( "${env}" != *'locally'* ) ]]; then
-    sbatch -c 8 -t 240 --wrap="spack env activate ${2}; time spack -C ${SPACK_ARCH} install -j 8"
+    sbatch -c 8 -t 240 --wrap="spack env activate ${2}; time spack -C ${SPACK_SCOPE} install -j 8"
   elif [[ ( $@ == *'-i locally -rf' ) ]]; then
-    sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack -C ${SPACK_ARCH} install -j 8"
+    sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack -C ${SPACK_SCOPE} install -j 8"
   elif [[ ( $@ == *'-i locally'* ) && ( "${env}" != *'rf'* ) ]]; then
     sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack install -j 8"
   fi
@@ -858,15 +865,15 @@ function Install_Spack ()
      source "${SPACK_ROOT}/spack/share/spack/setup-env.sh"
 
      # Copy shared mirrors config from ARCH_SCOPE — single source of truth
-     # To change mirror paths, edit: ${SPACK_ARCH}/mirrors.yaml
-     if [ -f "${SPACK_ARCH}/mirrors.yaml" ]; then
+     # To change mirror paths, edit: ${SPACK_SCOPE}/mirrors.yaml
+     if [ -f "${SPACK_SCOPE}/mirrors.yaml" ]; then
        mkdir -p "${HOME}/.spack"
-       cp "${SPACK_ARCH}/mirrors.yaml" "${HOME}/.spack/mirrors.yaml"
-       echo "Mirrors loaded from ${SPACK_ARCH}/mirrors.yaml"
+       cp "${SPACK_SCOPE}/mirrors.yaml" "${HOME}/.spack/mirrors.yaml"
+       echo "Mirrors loaded from ${SPACK_SCOPE}/mirrors.yaml"
      else
-       echo "Warning: ${SPACK_ARCH}/mirrors.yaml not found — no mirrors configured"
+       echo "Warning: ${SPACK_SCOPE}/mirrors.yaml not found — no mirrors configured"
      fi
-     spack -C "${SPACK_ARCH}" buildcache keys --install --trust
+     spack -C "${SPACK_SCOPE}" buildcache keys --install --trust
 
      Spack_setup
 
@@ -1003,7 +1010,12 @@ function Remove_Spack ()
   fi
 }
 
-function usage_root {
+function usage_master {
+  if [[ "${USER}" != "${SPACK_ADMIN_USER}" ]]; then
+    echo "Error!! 'help-all-master' is restricted to ${SPACK_ADMIN_USER}."
+    echo "        You are: ${USER}"
+    exit 1
+  fi
 1>&2 cat << \EOF
 
 ── Admin operations (${SPACK_ADMIN_USER} only) ────────────────────────────────────────────
@@ -1086,11 +1098,11 @@ function spack_cache_push ()
   if [ "$ARG" = "--env" ]; then
     local ENV="${3:-locally}"
     echo "==> Resolving hashes for all packages in env: $ENV"
-    HASHES=$(spack -C ${SPACK_ARCH} env activate "$ENV" 2>/dev/null && \
-             spack -C ${SPACK_ARCH} find --no-groups --format '/{hash}' 2>/dev/null)
+    HASHES=$(spack -C ${SPACK_SCOPE} env activate "$ENV" 2>/dev/null && \
+             spack -C ${SPACK_SCOPE} find --no-groups --format '/{hash}' 2>/dev/null)
   else
     echo "==> Resolving hash for: $ARG (must be installed under intel scope)"
-    HASHES=$(spack -C ${SPACK_ARCH} find --no-groups --format '/{hash}' "$ARG" 2>/dev/null)
+    HASHES=$(spack -C ${SPACK_SCOPE} find --no-groups --format '/{hash}' "$ARG" 2>/dev/null)
   fi
 
   if [ -z "$HASHES" ]; then
@@ -1099,13 +1111,13 @@ function spack_cache_push ()
 
   echo ""
   echo "==> Dry-run: packages to push to ARCH cache:"
-  spack -C ${SPACK_ARCH} buildcache list --allarch $ARG 2>/dev/null || \
-    spack -C ${SPACK_ARCH} find -lv $ARG 2>/dev/null
+  spack -C ${SPACK_SCOPE} buildcache list --allarch $ARG 2>/dev/null || \
+    spack -C ${SPACK_SCOPE} find -lv $ARG 2>/dev/null
   echo ""
   read -p "Push to arch buildcache? (yes/no): " yn
   case "${yn,,}" in
     yes|y)
-      spack -C ${SPACK_ARCH} buildcache push arch $HASHES
+      spack -C ${SPACK_SCOPE} buildcache push arch $HASHES
       echo "==> Done. Other admin users can now deploy with: spackon --deploy $ARG"
       ;;
     *) echo "Aborted."; exit 0 ;;
@@ -1134,11 +1146,11 @@ function spack_deploy ()
     local ENV="${3:-locally}"
     echo "==> Deploying all packages in env '$ENV' from ARCH cache → install_tree"
     sbatch -c 8 -t 120 --wrap="spack env activate ${ENV}; \
-      spack -C ${SPACK_ARCH} install --use-buildcache only -j 8"
+      spack -C ${SPACK_SCOPE} install --use-buildcache only -j 8"
   else
     echo "==> Deploying $ARG from ARCH cache → ${SPACK_INSTALL_TREE}"
     echo "    (will fail if package is unsigned or key not trusted)"
-    sbatch -c 8 -t 120 --wrap="spack -C ${SPACK_ARCH} install --use-buildcache only $ARG"
+    sbatch -c 8 -t 120 --wrap="spack -C ${SPACK_SCOPE} install --use-buildcache only $ARG"
   fi
 }
 
@@ -1152,8 +1164,12 @@ while [ $# -gt 0 ]; do
       usage_admin
       exit
       ;;
-    help-all-admin|--help-all-admin)
-      usage_root
+    help-all-master|--help-all-master)
+      usage_master
+      exit
+      ;;
+    help-all-admin|--help-all-admin|help-all-root|--help-all-root)
+      usage_master
       exit
       ;;
     -a|--activate)

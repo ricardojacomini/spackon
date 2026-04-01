@@ -54,7 +54,7 @@ help-all-root
 
 ## For Regular Users (non-admin)
 
-You do not need to be a member of the `admin` group to use `spackon`. Regular ARCH users can:
+You do not need to be a member of the `$SPACK_DEPLOY_GROUP` group to use `spackon`. Regular ARCH users can:
 
 1. **Use pre-installed software** — packages deployed by admin are available in the shared module tree without any spack setup.
 2. **Install a personal spack** — build and manage your own packages in your home directory.
@@ -125,19 +125,23 @@ Packages install into ~/software_spack — your personal space only
 ## Architecture Overview
 
 
-| Path                                      | Purpose/Type         | Notes/Permissions                |
-|--------------------------------------------|----------------------|----------------------------------|
-| /scratch/admin/spack                       | Personal build space | all admin write here             |
-| /apps/software/spack/mirror-spack/build_cache | arch buildcache    | signed: true                     |
-| /apps/software/spack/                      | Shared install_tree  | admin write, 2775                |
-| /apps/software/spack/build/keys            | GPG public keys      |                                  |
+| Path                                          | Purpose/Type              | Notes/Permissions                       |
+|-----------------------------------------------|---------------------------|-----------------------------------------|
+| /scratch/admin/spack                          | Personal build space      | all `$SPACK_DEPLOY_GROUP` write here    |
+| /apps/software/spack/mirror-spack/build_cache | arch buildcache           | signed: true                            |
+| /apps/software/spack/intel                    | Shared install_tree (x86) | `$SPACK_DEPLOY_GROUP` write, 2775       |
+| /apps/software/spack/amd                      | Shared install_tree (AMD) | `$SPACK_DEPLOY_GROUP` write, 2775       |
+| /apps/software/spack/build/keys               | GPG public keys           |                                         |
 
-**Config scopes** live in `/apps/helpers/spack/` — shared across all admin members:
+**Config scopes** live in `/apps/helpers/spack/` — shared across all `$SPACK_DEPLOY_GROUP` members:
 
-| Scope   | Config path                    | install_tree                 | Architecture |
-|---------|--------------------------------|------------------------------|--------------|
-| `intel` | `/apps/helpers/spack/intel`    | `/apps/software/spack/intel` | intel        |
-| `amd`   | `/apps/helpers/spack/amd`      | `/apps/software/spack/amd`   | amd          |
+| Scope   | Config path (`$SPACK_SCOPE`)   | install_tree (`$SPACK_INSTALL_TREE`) | Architecture |
+|---------|--------------------------------|--------------------------------------|--------------|
+| `intel` | `/apps/helpers/spack/intel`    | `/apps/software/spack/intel`         | intel        |
+| `amd`   | `/apps/helpers/spack/amd`      | `/apps/software/spack/amd`           | amd          |
+
+> **`$SPACK_SCOPE`** and **`$SPACK_INSTALL_TREE`** are auto-set by spackon at startup based on CPU vendor (`lscpu`).
+> Use `$SPACK_SCOPE` in spack commands instead of hardcoding the path — it works for both intel and AMD nodes.
 
 ---
 
@@ -188,14 +192,14 @@ Packages install into ~/software_spack — your personal space only
 
 ```bash
 sudo mkdir -p /scratch/admin/spack
-sudo chown ${SPACK_ADMIN_USER}:admin /scratch/admin/spack
+sudo chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP} /scratch/admin/spack
 sudo chmod 2775 /scratch/admin/spack
 ```
 #### 2775 = setgid + rwxrwxr-x
-#### setgid ensures new files inherit admin group automatically
+#### setgid ensures new files inherit `$SPACK_DEPLOY_GROUP` group automatically
 
 
-#### Lock install_tree: admin group write, world read
+#### Lock install_tree: `$SPACK_DEPLOY_GROUP` group write, world read
 
 ```bash
 chmod 2775 /apps/software/spack/intel
@@ -208,7 +212,7 @@ chmod 2775 /apps/software/spack/amd/.spack-db
 
 ```bash
 sudo mkdir -p /apps/software/spack/build/keys
-sudo chown ${SPACK_ADMIN_USER}:admin /apps/software/spack/build/keys
+sudo chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP} /apps/software/spack/build/keys
 sudo chmod 2775 /apps/software/spack/build/keys
 ```
 
@@ -285,7 +289,7 @@ spack add openmpi@4.1.6 %gcc@9.3.0
 #### Concretize — resolve all dependencies
 
 ```bash
-spack -C /apps/helpers/spack/intel concretize -f
+spack -C $SPACK_SCOPE concretize -f
 ```
 
 #### Submit build job to SLURM (8 cores, 4 hours)
@@ -296,8 +300,8 @@ spackon -i locally
 ##### Packages land in /scratch/admin/spack — shared admin scratch space
 ##### Nothing touches the shared install_tree yet
 
-> **Tip:** Use `spack -C /apps/helpers/spack/intel concretize` (with `intel` scope) to ensure
-> packages resolve against the same config that will be used at deploy time.
+> **Tip:** Use `spack -C $SPACK_SCOPE concretize` to ensure packages resolve against the same
+> config that will be used at deploy time (`$SPACK_SCOPE` is auto-set to intel or amd scope).
 
 ---
 
@@ -310,7 +314,7 @@ spackon --cache-push python@3.11.9
 
 spackon performs these checks automatically before pushing:
 
-1. **admin membership** — must be in `admin` group
+1. **group membership** — must be in `$SPACK_DEPLOY_GROUP` group
 2. **GPG key present** — must have run `spackon --keys create`
 3. **intel scope check** — package must have been built with intel config
    *(wrong compiler/variants won't match the shared install_tree projections)*
@@ -340,7 +344,7 @@ spackon --cache-push --env locally
 ```bash
 spackon --keys trust
 ```
-#### Deploy from signed cache → /apps/software/spack/intel
+#### Deploy from signed cache → $SPACK_INSTALL_TREE
 ```bash
 spackon --deploy python@3.11.9
 ```
@@ -348,7 +352,7 @@ spackon --deploy python@3.11.9
 **What happens:**
 
 - Submits a SLURM job running:
-  `spack -C /apps/helpers/spack/intel install --use-buildcache only python@3.11.9`
+  `spack -C $SPACK_SCOPE install --use-buildcache only python@3.11.9`
 - `--use-buildcache only` means **no source compilation** — if the package is not in the signed cache, the job fails
 - Package installs into `/apps/software/spack/intel/gcc/9.3.0/python/3.11.9-abc1234`
 - Path is enforced by projections: `{compiler.name}/{compiler.version}/{name}/{version}-{hash:7}`
@@ -398,22 +402,22 @@ Config scopes live in `/apps/helpers/spack/` — shared across all admin, preser
 ### Verify install_tree config
 
 ```bash
-spack -C /apps/helpers/spack/intel config get config
+spack -C $SPACK_SCOPE config get config
 ```
 
 ### Find installed packages
 ```bash
-spack -C /apps/helpers/spack/intel find -pl
+spack -C $SPACK_SCOPE find -pl
 ```
 
 ### Concretize environment
 ```bash
-spack -C /apps/helpers/spack/intel concretize -f
+spack -C $SPACK_SCOPE concretize -f
 ```
 
 ### Build manually (debug)
 ```bash
-spack -ddd -C /apps/helpers/spack/intel install -j 8
+spack -ddd -C $SPACK_SCOPE install -j 8
 ```
 
 Key settings in `intel/config.yaml`:
@@ -443,12 +447,12 @@ To change a path, edit `init` — all users and spackon pick it up automatically
 
 #### List active mirrors
 ```bash
-spack -C /apps/helpers/spack/intel mirror list
+spack -C $SPACK_SCOPE mirror list
 ```
 
 #### Search buildcache (checks all mirrors)
 ```bash
-spack -C /apps/helpers/spack/intel buildcache list python
+spack -C $SPACK_SCOPE buildcache list python
 ```
 
 #### Push new build to arch (admin + GPG key required)
@@ -460,7 +464,7 @@ spackon --cache-push python@3.11.9
 ```bash
 stat /apps/software/spack/mirror-spack/build_cache | grep -E 'Uid|Gid|Access:'
 ```
-#### Expected: ${SPACK_ADMIN_USER}:admin  2775 (drwxrwsr-x)
+#### Expected: ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP}  2775 (drwxrwsr-x)
 
 > `arch` is the single active mirror — all new builds push here.
 > `signed: true` enforces GPG verification before any package enters the shared install_tree.
@@ -498,7 +502,7 @@ spackon --keys list
 
 #### Manual trust (spack native)
 ```bash
-spack -C /apps/helpers/spack/intel buildcache keys --install --trust
+spack -C $SPACK_SCOPE buildcache keys --install --trust
 ```
 
 ---
@@ -513,7 +517,7 @@ spack -C /apps/helpers/spack/intel buildcache keys --install --trust
 | Accidental blanket push           | `--cache-push` requires explicit `<pkg>@<ver>` or `--env` — no push-everything      |
 | Unreviewed push                   | Dry-run preview + confirmation prompt before every `--cache-push`                   |
 | Concurrent install corruption     | `locks: true`, `db_lock_timeout: 120` in `config.yaml`                             |
-| Random user writes to tree        | `chmod 2775` + admin group ownership — non-admin users cannot write                 |
+| Random user writes to tree        | `chmod 2775` + `$SPACK_DEPLOY_GROUP` group ownership — non-members cannot write     |
 
 ---
 
@@ -524,7 +528,7 @@ spack -C /apps/helpers/spack/intel buildcache keys --install --trust
 
 ### Layer 1 — Filesystem security
 
-#### Lock install_tree: admin group write, world read (run once)
+#### Lock install_tree: `$SPACK_DEPLOY_GROUP` group write, world read (run once)
 ```bash
 chmod 2755 /apps/software/spack/intel          - ${SPACK_ADMIN_USER}-only write
 chmod 2755 /apps/software/spack/amd
@@ -532,7 +536,7 @@ chmod 2755 /apps/software/spack/amd
 
 ##### OR
 ```bash
-chmod 2775 /apps/software/spack/intel          - admin group write (collaborative)
+chmod 2775 /apps/software/spack/intel          - $SPACK_DEPLOY_GROUP group write (collaborative)
 chmod 2775 /apps/software/spack/amd
 ```
 
@@ -543,7 +547,7 @@ stat /apps/software/spack/intel | grep Access
 
 #### Fix ownership if needed
 ```bash
-chown -R ${SPACK_ADMIN_USER}:admin /apps/software/spack/intel
+chown -R ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP} /apps/software/spack/intel
 find /apps/software/spack/intel -type d -exec chmod g+s {} \;
 ```
 
@@ -563,7 +567,7 @@ mirrors:
 ### umask
 
 The spackon subshell sets `umask 0002` automatically — new files created during installs
-inherit the admin group and are group-writable.
+inherit the `$SPACK_DEPLOY_GROUP` group and are group-writable.
 
 ---
 
