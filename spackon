@@ -100,6 +100,88 @@ EOF
 
 }
 
+function usage_all {
+1>&2 cat <<EOF
+
+── Stage 1: Personal spack setup (any user) ────────────────────────────────────
+
+  Install spack in ~/software_spack (run once):
+    ${PROGNAME} -c
+
+  Activate spack subshell:
+    ${PROGNAME}
+
+  Update spack to latest stable release:
+    ${PROGNAME} -u
+
+  Update spack to develop branch:
+    ${PROGNAME} -u dev
+
+── Stage 1: Build packages in your personal spack ──────────────────────────────
+
+  Inside the spackon subshell:
+
+    Create a local environment (run once):
+      spack env create locally
+
+    Activate your environment:
+      spack env activate locally
+
+    Add packages:
+      spack add python@3.11.9
+      spack add openmpi@4.1.6 %gcc@9.3.0
+
+    Concretize — resolve all dependencies:
+      spack concretize -f
+
+    Submit SLURM build job (8 cores, 4 hours):
+      ${PROGNAME} -i locally
+
+    Or install in another environment:
+      ${PROGNAME} -i my_env
+
+  Packages install into ~/software_spack — your personal space only.
+  Personal builds do NOT go into the shared install tree.
+  To request a package in the shared tree, contact ${SPACK_ADMIN_USER}.
+
+── Use pre-installed software (no spack needed) ────────────────────────────────
+
+    module avail                          # list all available software
+    module load gcc/9.3.0 python/3.11.9   # load a package
+    module list                           # show loaded modules
+    module unload python/3.11.9           # unload a module
+
+── Environment management ──────────────────────────────────────────────────────
+
+    spack env list                        # list all environments
+    spack env activate locally            # activate an environment
+    spack env deactivate                  # deactivate current environment
+    spack env create my_env               # create a new environment
+    spack env remove my_env               # remove an environment
+    spack find                            # list installed packages
+    spack find -pl                        # list with paths
+
+── Build cache — install from signed binaries ──────────────────────────────────
+
+    spack install --use-buildcache prefer python@3.11.9
+    # prefers cached binary, falls back to source if not cached
+
+    spack buildcache list python          # search cache for a package
+
+── GPG keys ────────────────────────────────────────────────────────────────────
+
+    ${PROGNAME} --keys list               # list trusted keys
+    ${PROGNAME} --keys trust              # trust all keys in ${SPACK_KEYSPOT}
+
+── More help ────────────────────────────────────────────────────────────────────
+
+    ${PROGNAME} -h                        # short help
+    help-admin                            # admin operations (${SPACK_DEPLOY_GROUP} members only)
+    help-master                           # master operations (${SPACK_ADMIN_USER} only)
+
+EOF
+}
+
 function usage_admin {
   if ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx "$SPACK_DEPLOY_GROUP"; then
     echo "Error!! 'help-all' admin view is restricted to ${SPACK_DEPLOY_GROUP} group members."
@@ -130,14 +212,14 @@ usage: ${PROGNAME} [-hacfrim]
     -i -push            Install locally then push built packages to ARCH buildcache mirror.
                               ${PROGNAME} -i -push
 
-    -i | --install -rf  If you are in admin group, and want to install packages on ARCH system using a SLURM job.
+    -i | --install -arch  If you are in admin group, and want to install packages on ARCH system using a SLURM job.
                         It will install with Custom Scope of install_tree: ${SPACK_INSTALL_TREE}
 
-                        e.g.: ${PROGNAME} -i -rf
-                              ${PROGNAME} -i my_env -rf
+                        e.g.: ${PROGNAME} -i -arch
+                              ${PROGNAME} -i my_env -arch
 
-    -i -rf-push         Install with intel scope (shared install_tree) then push built packages to ARCH buildcache.
-                              ${PROGNAME} -i -rf-push
+    -i -arch-push       Install with intel scope (shared install_tree) then push built packages to ARCH buildcache.
+                              ${PROGNAME} -i -arch-push
 
 ── admin 3-stage collaborative workflow ──────────────────────────────────────
 
@@ -742,10 +824,11 @@ function Activate_Spack ()
         export SSID=${BASHPID}
 	export -f spack_stage_and_cd
         export -f help-all
+        export -f usage_all
         export -f spack_keys
         export -f usage_master
-        help-all-admin () { usage_master; }
-        export -f help-all-admin
+        help-admin () { usage_master; }
+        export -f help-admin
         bash --init-file <(
         echo "
         echo " ";
@@ -821,19 +904,19 @@ function Install_Packages ()
       echo "Error!! No GPG key found. Run: spackon --keys create"; exit 1
     fi
     sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack install -j 8 && spack buildcache push arch \$(spack find --no-groups --format '/{hash}')"
-  elif [[ ( $@ == "-i -rf" ) ]]; then
+  elif [[ ( $@ == "-i -arch" ) ]]; then
     sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack -C ${SPACK_SCOPE} install -j 8"
-  elif [[ ( $@ == "-i -rf-push" ) ]]; then
+  elif [[ ( $@ == "-i -arch-push" ) ]]; then
     if [[ "${USER}" != "${SPACK_ADMIN_USER}" ]]; then
-      echo "Error!! '-i -rf-push' is restricted to ${SPACK_ADMIN_USER}."; exit 1
+      echo "Error!! '-i -arch-push' is restricted to ${SPACK_ADMIN_USER}."; exit 1
     fi
     if ! spack gpg list 2>/dev/null | grep -q 'sec\|pub'; then
       echo "Error!! No GPG key found. Run: spackon --keys create"; exit 1
     fi
     sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack -C ${SPACK_SCOPE} install -j 8 && spack -C ${SPACK_SCOPE} buildcache push arch \$(spack find --no-groups --format '/{hash}')"
-  elif [[ ( $@ == *'-rf'* ) && ( "${env}" != *'locally'* ) ]]; then
+  elif [[ ( $@ == *'-arch'* ) && ( "${env}" != *'locally'* ) ]]; then
     sbatch -c 8 -t 240 --wrap="spack env activate ${2}; time spack -C ${SPACK_SCOPE} install -j 8"
-  elif [[ ( $@ == *'-i locally -rf' ) ]]; then
+  elif [[ ( $@ == *'-i locally -arch' ) ]]; then
     sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack -C ${SPACK_SCOPE} install -j 8"
   elif [[ ( $@ == *'-i locally'* ) && ( "${env}" != *'rf'* ) ]]; then
     sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack install -j 8"
@@ -1012,7 +1095,7 @@ function Remove_Spack ()
 
 function usage_master {
   if [[ "${USER}" != "${SPACK_ADMIN_USER}" ]]; then
-    echo "Error!! 'help-all-master' is restricted to ${SPACK_ADMIN_USER}."
+    echo "Error!! 'help-master' is restricted to ${SPACK_ADMIN_USER}."
     echo "        You are: ${USER}"
     exit 1
   fi
@@ -1049,7 +1132,7 @@ function usage_master {
 ── Full deploy workflow ─────────────────────────────────────────────────────────
 
   ${SPACK_ADMIN_USER} only (has signing key + owns install_tree):
-    spackon -i -rf-push    →  install to tree + sign + push to ARCH cache
+    spackon -i -arch-push    →  install to tree + sign + push to ARCH cache
 
   any admin user (read access, trusted key):
     spackon --keys trust
@@ -1106,7 +1189,7 @@ function spack_cache_push ()
   fi
 
   if [ -z "$HASHES" ]; then
-    echo "Error!! Package not found under intel scope. Build with 'spackon -i -rf' first."; exit 1
+    echo "Error!! Package not found under intel scope. Build with 'spackon -i -arch' first."; exit 1
   fi
 
   echo ""
@@ -1161,15 +1244,15 @@ while [ $# -gt 0 ]; do
       exit
       ;;
     -all|--help-all|help-all)
+      usage_all
+      exit
+      ;;
+    help-master|--help-master)
+      usage_master
+      exit
+      ;;
+    help-admin|--help-admin)
       usage_admin
-      exit
-      ;;
-    help-all-master|--help-all-master)
-      usage_master
-      exit
-      ;;
-    help-all-admin|--help-all-admin|help-all-root|--help-all-root)
-      usage_master
       exit
       ;;
     -a|--activate)

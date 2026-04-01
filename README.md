@@ -31,7 +31,7 @@
 - [Mirrors](#mirrors)
 - [GPG Key Management](#gpg-key-management)
 - [What Keeps install_tree Clean](#what-keeps-install_tree-clean)
-- [Admin Operations](#admin-operations-help-all-admin)
+- [Admin Operations](#admin-operations-help-admin)
 
 ---
 
@@ -45,9 +45,13 @@ spackon
 ```bash
 help-all
 ```
-###  Admin help (${SPACK_ADMIN_USER} / admin)
+### Admin help (`$SPACK_DEPLOY_GROUP` members)
 ```bash
-help-all-root
+help-admin
+```
+### Master help (`$SPACK_ADMIN_USER` only)
+```bash
+help-master
 ```
 
 ---
@@ -105,20 +109,12 @@ spackon -i locally
 ```
 Packages install into ~/software_spack — your personal space only
 
-> **Note:** Personal builds do **not** go into the shared install tree (`/apps/software/spack/intel`).
-> If you need a package added to the shared tree, ask an admin member.
+> **Note:** Personal builds do **not** go into the shared install tree (`$SPACK_INSTALL_TREE`).
+> If you need a package added to the shared tree, ask a `$SPACK_DEPLOY_GROUP` member.
 
 ### Commands Available to All Users
 
-| Command                | Description                               |
-|------------------------|-------------------------------------------|
-| `spackon`              | Activate spack subshell                   |
-| `spackon -c`           | Install spack in `~/software_spack`       |
-| `spackon -i locally`   | Build packages in personal spack (SLURM)  |
-| `spackon --keys list`  | List current GPG keys                     |
-| `spackon -u`           | Update spack to latest stable release     |
-| `spackon -u dev`       | Update spack to develop branch            |
-| `help-all`             | Full help inside spackon subshell         |
+See [Commands Reference](#commands-reference) for the full table with per-role access (Non-admin / Admin / Master).
 
 ---
 
@@ -149,36 +145,61 @@ Packages install into ~/software_spack — your personal space only
 
 ### Flow Diagram
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        admin 3-Stage Workflow                               │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    classDef anyNode   fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef adminNode fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef masterNode fill:#fce7f3,stroke:#db2777,color:#831843
+    classDef storeNode fill:#f1f5f9,stroke:#64748b,color:#0f172a
+    classDef checkNode fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef failNode  fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
 
-  ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────────┐
-  │   STAGE 1        │     │   STAGE 2        │     │   STAGE 3            │
-  │   Build          │────▶│   Cache Push     │────▶│   Deploy             │
-  │                  │     │                  │     │                      │
-  │   any admin      │     │   admin + key    │     │  admin + trust key   │
-  │                  │     │                  │     │                      │
-  │ /scratch/admin/  │     │   arch cache     │     │ /apps/software/spack │
-  │ spack            │     │ (signed binary)  │     │                      │
-  └──────────────────┘     └──────────────────┘     └──────────────────────┘
-         │                         │                         │
-  spackon -i locally        spackon                  spackon --deploy
-                            --cache-push             python@3.11.9
-                            python@3.11.9
-                                   │
-                          ┌────────▼─────────┐
-                          │   GPG checks:    │
-                          │ • admin?         │
-                          │ • has key?       │
-                          │ • intel scope?   │
-                          │ • confirm?       │
-                          └──────────────────┘
+    subgraph SETUP["⚙️  Stage 0 — One-Time Setup  (master)"]
+        direction TB
+        mk["sudo mkdir /scratch/admin/spack\nsudo chown master:$SPACK_DEPLOY_GROUP\nsudo chmod 2775"]:::masterNode
+        kb["spackon --keys create\nspackon --keys export\n(each admin, once)"]:::adminNode
+        kt["spackon --keys trust\n(master approves)"]:::masterNode
+        mk --> kb --> kt
+    end
 
-  ${SPACK_ADMIN_USER} role: approve new admin keys (once per user)
-  ────────────────────────────────────────────────────────
-  spackon --keys trust    ← trusts all keys in /apps/software/spack/build/keys/
+    subgraph S1["🔨  Stage 1 — Build  (any admin)"]
+        direction TB
+        s1a["export SPACK_ROOT=/scratch/admin/spack\nspackon"]:::adminNode
+        s1b["spack env create locally\nspack add pkg@ver\nspack concretize -f"]:::adminNode
+        s1c["spackon -i locally\nSLURM · 8 cores · 4 h"]:::adminNode
+        s1a --> s1b --> s1c
+    end
+
+    scratch[("📁 /scratch/admin/spack\n✓ package built")]:::storeNode
+
+    subgraph S2["📦  Stage 2 — Cache Push  (admin + GPG key)"]
+        direction TB
+        s2a["spackon --cache-push pkg@ver"]:::adminNode
+        s2chk{"• $SPACK_DEPLOY_GROUP member?\n• has signing key?\n• correct $SPACK_SCOPE?\n• confirm push?"}:::checkNode
+        s2ok["✓ signed & pushed"]:::adminNode
+        s2fail["✗ aborted"]:::failNode
+        s2a --> s2chk
+        s2chk -->|pass| s2ok
+        s2chk -->|fail| s2fail
+    end
+
+    cache[("📦 arch buildcache\nsigned · verified")]:::storeNode
+
+    subgraph S3["🚀  Stage 3 — Deploy  (admin + trusted key)"]
+        direction TB
+        s3a["spackon --keys trust"]:::adminNode
+        s3b["spackon --deploy pkg@ver\nSLURM · --use-buildcache only"]:::adminNode
+        s3a --> s3b
+    end
+
+    tree[("🌲 $SPACK_INSTALL_TREE\ngcc/ver/pkg/ver-hash\n✓ live for all users")]:::storeNode
+
+    SETUP --> S1
+    s1c    --> scratch
+    scratch --> s2a
+    s2ok   --> cache
+    cache  --> s3a
+    s3b    --> tree
 ```
 
 ---
@@ -373,25 +394,29 @@ spackon --deploy --env locally
 
 ## Commands Reference
 
-| Command                            | Who           | Description                                                  |
-|------------------------------------|---------------|--------------------------------------------------------------|
-| `spackon`                          | anyone        | Activate spack subshell                                      |
-| `spackon -c`                       | anyone        | Install spack in `~/software_spack`                          |
-| `spackon -i locally`               | anyone        | Build packages in personal spack (SLURM)                     |
-| `spackon -i -rf`                   | admin         | Build directly into shared install_tree (SLURM)              |
-| `spackon -i -rf-push`              | ${SPACK_ADMIN_USER}      | Build into shared tree + push to cache (SLURM)               |
-| `spackon --cache-push <pkg>@<ver>` | admin + key   | Push signed package to arch cache                            |
-| `spackon --cache-push --env <env>` | admin + key   | Push all packages in env to cache                            |
-| `spackon --deploy <pkg>@<ver>`     | admin + trust | Deploy from cache → install_tree (SLURM)                     |
-| `spackon --deploy --env <env>`     | admin + trust | Deploy full env from cache (SLURM)                           |
-| `spackon --keys create`            | admin         | Create GPG signing key (once per user)                       |
-| `spackon --keys export`            | admin         | Export public key to `/apps/software/spack/build/keys`       |
-| `spackon --keys trust`             | admin         | Trust all keys in `/apps/software/spack/build/keys`          |
-| `spackon --keys list`              | anyone        | List current GPG keys                                        |
-| `spackon -u`                       | anyone        | Update spack to latest stable release                        |
-| `spackon -u dev`                   | anyone        | Update spack to develop branch                               |
-| `help-all`                         | anyone        | Full help inside spackon subshell                            |
-| `help-all-admin`                    | admin         | Admin operations help                                        |
+| Command | Description | Non-admin | Admin (`$SPACK_DEPLOY_GROUP`) | Master (`$SPACK_ADMIN_USER`) |
+|---|---|:---:|:---:|:---:|
+| `spackon` | Activate spack subshell | ✅ | ✅ | ✅ |
+| `spackon -c` | Install spack in `~/software_spack` | ✅ | ✅ | ✅ |
+| `spackon -i locally` | Build packages in personal spack (SLURM) | ✅ | ✅ | ✅ |
+| `spackon -u` | Update spack to latest stable release | ✅ | ✅ | ✅ |
+| `spackon -u dev` | Update spack to develop branch | ✅ | ✅ | ✅ |
+| `spackon --keys list` | List current GPG keys | ✅ | ✅ | ✅ |
+| `spackon --keys trust` | Trust all keys in `$SPACK_KEYSPOT` (required before using cache) | ✅ | ✅ | ✅ |
+| `spack install --use-buildcache prefer <pkg>` | Install from shared cache, build if not cached | ✅ | ✅ | ✅ |
+| `spack buildcache list <pkg>` | Search shared cache for a package | ✅ | ✅ | ✅ |
+| `help-all` | Full help inside spackon subshell | ✅ | ✅ | ✅ |
+| `spackon --keys create` | Create GPG signing key (once per user) | ❌ | ✅ | ✅ |
+| `spackon --keys export` | Export public key to `$SPACK_KEYSPOT` | ❌ | ✅ | ✅ |
+| `spackon -i -arch` | Build directly into shared install_tree (SLURM) | ❌ | ✅ | ✅ |
+| `spackon --cache-push <pkg>@<ver>` | Push signed package to arch cache | ❌ | ✅ | ✅ |
+| `spackon --cache-push --env <env>` | Push all packages in env to cache | ❌ | ✅ | ✅ |
+| `spackon --deploy <pkg>@<ver>` | Deploy from cache → `$SPACK_INSTALL_TREE` (SLURM) | ❌ | ✅ | ✅ |
+| `spackon --deploy --env <env>` | Deploy full env from cache (SLURM) | ❌ | ✅ | ✅ |
+| `help-admin` | Admin operations help | ❌ | ✅ | ✅ |
+| `spackon -i -push` | Install locally + push to cache (SLURM) | ❌ | ❌ | ✅ |
+| `spackon -i -arch-push` | Install into shared tree + push to cache (SLURM) | ❌ | ❌ | ✅ |
+| `help-master` | Master-only operations help | ❌ | ❌ | ✅ |
 
 ---
 
@@ -521,7 +546,7 @@ spack -C $SPACK_SCOPE buildcache keys --install --trust
 
 ---
 
-## Admin Operations (`help-all-admin`)
+## Admin Operations (`help-admin`)
 
 > These operations are for ${SPACK_ADMIN_USER} / admin members. No `sudo` needed except where noted.
 
