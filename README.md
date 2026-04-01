@@ -179,7 +179,8 @@ Packages install into ~/software_spack — your personal space only
 
 ---
 
-### Stage 0 — One-Time Setup (${SPACK_ADMIN_USER} runs once)
+### Stage 0 — One-Time Setup 
+> #### ${SPACK_ADMIN_USER} runs once
 
 #### Create shared directories
 
@@ -520,6 +521,7 @@ spack -C /apps/helpers/spack/intel buildcache keys --install --trust
 
 > These operations are for ${SPACK_ADMIN_USER} / admin members. No `sudo` needed except where noted.
 
+
 ### Layer 1 — Filesystem security
 
 #### Lock install_tree: admin group write, world read (run once)
@@ -544,6 +546,7 @@ stat /apps/software/spack/intel | grep Access
 chown -R ${SPACK_ADMIN_USER}:admin /apps/software/spack/intel
 find /apps/software/spack/intel -type d -exec chmod g+s {} \;
 ```
+
 
 ### Layer 2 — Spack mirror security
 
