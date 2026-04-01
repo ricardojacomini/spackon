@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- coding: utf-8 -*-
 # The Advanced Research Computing at Hopkins (ARCH)
-# Ricardo S Jacomini < rdesouz4 @ jhu.edu >
+# Ricardo S Jacomini < ${SPACK_ADMIN_USER} @ jhu.edu >
 # Date: Jul, 18 2022
 
 # `spackon` is a bash wrapper around [Spack](https://spack.readthedocs.io) that 
@@ -27,7 +27,7 @@ if [ ! -f "${ARCH_SCOPE}/init" ]; then
 # Edit this file to change any path, group, or URL.
 
 SPACK_DEPLOY_GROUP=spack
-SPACK_ADMIN_USER=rdesouz4
+SPACK_ADMIN_USER=master
 SPACK_INSTALL_TREE=/apps/software/spack/intel
 SPACK_INSTALL_TREE_AMD=/apps/software/spack/amd
 SPACK_INSTALL_DIR=${HOME}/software_spack
@@ -224,7 +224,7 @@ EOF
     # installs --use-buildcache only → ${SPACK_INSTALL_TREE}
     # fails if package is unsigned or key not trusted
 
-  rdesouz4 approves new admin contributors (one-time per user):
+  ${SPACK_ADMIN_USER} approves new admin contributors (one-time per user):
     spackon --keys trust           # trust a new user's exported key
 
 ── GPG key management (for buildcache signing) ─────────────────────────────────
@@ -731,8 +731,8 @@ function Activate_Spack ()
         export -f help-all
         export -f spack_keys
         export -f usage_root
-        help-all-root () { usage_root; }
-        export -f help-all-root
+        help-all-admin () { usage_root; }
+        export -f help-all-admin
         bash --init-file <(
         echo "
         echo " ";
@@ -800,8 +800,8 @@ function Install_Packages ()
   elif [[ ( $@ == "-i" ) ]]; then
     sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack install -j 8"
   elif [[ ( $@ == "-i -push" ) ]]; then
-    if [[ "${USER}" != "rdesouz4" ]]; then
-      echo "Error!! '-i -push' is restricted to rdesouz4."; exit 1
+    if [[ "${USER}" != "${SPACK_ADMIN_USER}" ]]; then
+      echo "Error!! '-i -push' is restricted to ${SPACK_ADMIN_USER}."; exit 1
     fi
     if ! spack gpg list 2>/dev/null | grep -q 'sec\|pub'; then
       echo "Error!! No GPG key found. Run: spackon --keys create"; exit 1
@@ -810,8 +810,8 @@ function Install_Packages ()
   elif [[ ( $@ == "-i -rf" ) ]]; then
     sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack -C ${SPACK_ARCH} install -j 8"
   elif [[ ( $@ == "-i -rf-push" ) ]]; then
-    if [[ "${USER}" != "rdesouz4" ]]; then
-      echo "Error!! '-i -rf-push' is restricted to rdesouz4."; exit 1
+    if [[ "${USER}" != "${SPACK_ADMIN_USER}" ]]; then
+      echo "Error!! '-i -rf-push' is restricted to ${SPACK_ADMIN_USER}."; exit 1
     fi
     if ! spack gpg list 2>/dev/null | grep -q 'sec\|pub'; then
       echo "Error!! No GPG key found. Run: spackon --keys create"; exit 1
@@ -999,13 +999,13 @@ function Remove_Spack ()
 function usage_root {
 1>&2 cat << \EOF
 
-── Admin operations (rdesouz4 only) ────────────────────────────────────────────
+── Admin operations (${SPACK_ADMIN_USER} only) ────────────────────────────────────────────
 
-  Run outside spackon subshell. No sudo needed — rdesouz4 owns these dirs.
+  Run outside spackon subshell. No sudo needed — ${SPACK_ADMIN_USER} owns these dirs.
 
-── Layer 1: Filesystem — lock install_tree to rdesouz4 only (run once) ─────────
+── Layer 1: Filesystem — lock install_tree to ${SPACK_ADMIN_USER} only (run once) ─────────
 
-  Only rdesouz4 (owner) can write. Others can read/use modules but not install:
+  Only ${SPACK_ADMIN_USER} (owner) can write. Others can read/use modules but not install:
     chmod 2755 ${SPACK_INSTALL_TREE}
     chmod 2755 ${SPACK_INSTALL_TREE}/.spack-db
     chmod 2755 ${SPACK_INSTALL_TREE_AMD}
@@ -1016,7 +1016,7 @@ function usage_root {
     stat ${SPACK_INSTALL_TREE} | grep Access
 
   Fix ownership if needed:
-    chown -R rdesouz4:admin ${SPACK_INSTALL_TREE}
+    chown -R ${SPACK_ADMIN_USER}:admin ${SPACK_INSTALL_TREE}
 
 ── Layer 2: Spack mirror — require GPG signature for cache installs ─────────────
 
@@ -1029,7 +1029,7 @@ function usage_root {
 
 ── Full deploy workflow ─────────────────────────────────────────────────────────
 
-  rdesouz4 only (has signing key + owns install_tree):
+  ${SPACK_ADMIN_USER} only (has signing key + owns install_tree):
     spackon -i -rf-push    →  install to tree + sign + push to rockfish cache
 
   any admin user (read access, trusted key):
@@ -1045,7 +1045,7 @@ function usage_root {
     sudo chmod 2775 ${SPACK_KEYSPOT}
     # 2775 = setgid + rwxrwxr-x
     # setgid → new .gpg files inherit ${SPACK_DEPLOY_GROUP} group automatically
-    # after this, rdesouz4 can write freely (no sudo needed for key ops)
+    # after this, ${SPACK_ADMIN_USER} can write freely (no sudo needed for key ops)
 
 ── Spack config (intel/config.yaml key settings) ─────────────────────────
 
@@ -1145,7 +1145,7 @@ while [ $# -gt 0 ]; do
       usage_admin
       exit
       ;;
-    help-all-root|--help-all-root)
+    help-all-admin|--help-all-admin)
       usage_root
       exit
       ;;
