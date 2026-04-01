@@ -1,0 +1,1210 @@
+#!/bin/bash
+# -*- coding: utf-8 -*-
+# The Advanced Research Computing at Hopkins (ARCH)
+# Ricardo S Jacomini < rdesouz4 @ jhu.edu >
+# Date: Jul, 18 2022
+
+# `spackon` is a bash wrapper around [Spack](https://spack.readthedocs.io) that 
+# manages software installation, shared build caches, and 
+# GPG-signed deployments to the ARCH shared software stack. 
+# It automatically detects the CPU architecture (Intel or AMD) at runtime and selects 
+# the matching config scope and install tree.
+
+PROGNAME=$(basename "$0")
+list_all_users="yes"
+user="$(/usr/bin/whoami)"
+
+# Single hardcoded value — path to shared config (needed to bootstrap)
+ARCH_SCOPE=/apps/helpers/spack
+
+# Load all config from central init file — create with defaults if missing
+if [ ! -f "${ARCH_SCOPE}/init" ]; then
+  echo "==> ${ARCH_SCOPE}/init not found — creating with defaults..." >&2
+  mkdir -p "${ARCH_SCOPE}"
+  cat > "${ARCH_SCOPE}/init" << INITEOF
+# spackon shared config — ${ARCH_SCOPE}/init
+# Central configuration for all spackon settings.
+# Edit this file to change any path, group, or URL.
+
+SPACK_DEPLOY_GROUP=spack
+SPACK_ADMIN_USER=rdesouz4
+SPACK_INSTALL_TREE=/apps/software/spack/intel
+SPACK_INSTALL_TREE_AMD=/apps/software/spack/amd
+SPACK_INSTALL_DIR=${HOME}/software_spack
+SPACK_SCRATCH=/scratch/admin/spack
+SPACK_KEYSPOT=/apps/software/spack/build/keys
+SPACK_REPO_URL=https://github.com/spack/spack.git
+SPACK_MIRROR_PUBLIC=https://mirror.spack.io
+SPACK_MIRROR_ARCH=file:///apps/software/spack/mirror-spack/build_cache
+# cache 
+INITEOF
+  echo "==> Created: ${ARCH_SCOPE}/init  (edit to customize)" >&2
+fi
+source "${ARCH_SCOPE}/init"
+
+# Auto-detect CPU architecture scope (mirrors modulefile Lua detection)
+_cpu_vendor=$(lscpu 2>/dev/null | awk '/Vendor ID/ {print $3}')
+if [[ "$_cpu_vendor" == *"AMD"* ]]; then
+    SPACK_ARCH=${ARCH_SCOPE}/amd
+    SPACK_INSTALL_TREE=${SPACK_INSTALL_TREE_AMD}
+else
+    SPACK_ARCH=${ARCH_SCOPE}/intel
+fi
+unset _cpu_vendor
+
+spack_stage_and_cd ()
+{
+    if spack list $1 &> /dev/null; then
+        spack stage $1;
+        spack cd $1;
+        echo -e "run: \nspack -C ${SPACK_ARCH} build-env $1 ./configure";
+    else
+        echo "Package not found in Spack.";
+    fi
+}
+
+help-all ()
+{
+    spackon --help-all
+}
+
+function usage {
+
+  1>&2 cat <<EOF
+
+    $PROGNAME:  It is a wrap that uses Spack to manage the installation and configuration of software packages in own home directory
+
+usage: ${PROGNAME} [-hacir]
+
+    -h | --help         Display this help message
+    help-all            Full help: mirrors, build cache, config scopes, admin options
+    -a | --activate     Activate the Spack after installation (Default)
+                        NOTE: Use EXIT to return to Rockfish, after spack on!
+    -c | --create       Setup Spack inside user directory
+    -i | --install      Install packages using a SLURM job ( Default: locally environment )
+                        Note: You can install using another env.
+                              ${PROGNAME} -i my_env
+    -r | --remove       Remove Spack inside user directory
+    -u | --update [dev] Upgrade Spack (default: latest stable release tag)
+                        --update dev  clones the latest develop branch instead
+                        NOTE: Backs up current spack as spack.MonDD.YYYY, preserves arch config and environments
+
+EOF
+
+}
+
+function usage_admin {
+
+  1>&2 cat <<EOF
+
+    $PROGNAME:  It is a wrap that uses Spack to manage the installation and configuration of software packages in own home directory
+
+usage: ${PROGNAME} [-hacfrim]
+
+    -h | --help         Display this help message
+    -a | --activate     Activate the Spack after installation (Default)
+                        NOTE: Use EXIT to return to Rockfish, after spack on!
+    -c | --create       Setup Spack inside user directory
+    -f                  Add specs (packages) and compilers detected on the Rockfish
+                        You may add parameters related another spack installation path.
+                        (Default: /apps/linux-centos8-intel)
+                        e.g.: ${PROGNAME} -f /apps/linux-centos8-intel/
+
+    -i | --install      Install packages using a SLURM job ( Default: locally environment )
+                        Note: You can install using another env.
+                              ${PROGNAME} -i my_env
+
+    -i -push            Install locally then push built packages to rockfish buildcache mirror.
+                              ${PROGNAME} -i -push
+
+    -i | --install -rf  If you are in admin group, and want to install packages on Rockfish system using a SLURM job.
+                        It will install with Custom Scope of install_tree: ${SPACK_INSTALL_TREE}
+
+                        e.g.: ${PROGNAME} -i -rf
+                              ${PROGNAME} -i my_env -rf
+
+    -i -rf-push         Install with intel scope (shared install_tree) then push built packages to rockfish buildcache.
+                              ${PROGNAME} -i -rf-push
+
+── admin 3-stage collaborative workflow ──────────────────────────────────────
+
+    Stage 1 — any admin: build in personal scratch space
+    Stage 2 — admin with GPG key: push signed package to shared cache
+    Stage 3 — admin with GPG key: deploy from cache to shared install_tree
+
+    --cache-push <pkg>@<ver>
+                        Push a specific package (built with intel scope) to rockfish cache.
+                        Requires admin group + GPG key. Shows preview before pushing.
+                        e.g.: ${PROGNAME} --cache-push python@3.11.9
+                              ${PROGNAME} --cache-push --env locally   (push full env)
+
+    --deploy <pkg>@<ver>
+                        Deploy a signed package from rockfish cache → ${SPACK_INSTALL_TREE}
+                        Requires admin group + trusted GPG key. Uses --use-buildcache only.
+                        e.g.: ${PROGNAME} --deploy python@3.11.9
+                              ${PROGNAME} --deploy --env locally        (deploy full env)
+
+    -r | --remove       Remove Spack inside user directory
+
+    -m | --merge        Merge multiple YAML files into a single YAML file.
+                        Files are merged in order, such that files listed later will override files listed earlier.
+                        e.g.: ${PROGNAME} -m file1.yaml file2.yaml ...
+
+    -e | --env          Move the enviromenst to another path
+                        e.g:  ${PROGNAME} -e /data/$(id -gn)/spack_enviroments/$(id -un)
+
+    -u | --update [dev] Upgrade Spack (default: latest stable release tag)
+                        --update dev  clones the latest develop branch instead
+                        NOTE: Backs up current spack as spack.MonDD.YYYY, preserves arch config and environments
+
+More help:
+EOF
+
+1>&2 cat << \EOF
+
+── Custom config scopes ────────────────────────────────────────────────────────
+
+  intel  → install_tree: ${SPACK_INSTALL_TREE}        (intel)
+  amd         → install_tree: ${SPACK_INSTALL_TREE_AMD}   (amd)
+
+  Use -C /apps/helpers/spack/intel or -C /apps/helpers/spack/amd to switch targets.
+
+── Installing packages on Rockfish manually ────────────────────────────────────
+
+  spack -C /apps/helpers/spack/intel/ config get config   ( verify install_tree )
+  spack -C /apps/helpers/spack/intel/ find -pl
+  spack -C /apps/helpers/spack/intel/ concretize -f
+  spack -ddd -C /apps/helpers/spack/intel/ install -j 8
+
+  amd:
+  spack -C /apps/helpers/spack/amd/ concretize -f
+  spack -ddd -C /apps/helpers/spack/amd/ install -j 8
+
+── Mirrors and build cache ─────────────────────────────────────────────────────
+
+  Mirror config (single source of truth):
+    /apps/helpers/spack/intel/mirrors.yaml    (intel)
+    /apps/helpers/spack/amd/mirrors.yaml  (amd)
+
+  To change a mirror path, edit mirrors.yaml — all users pick it up automatically.
+
+  List active mirrors:
+    spack -C /apps/helpers/spack/intel/ mirror list
+
+  Search buildcache for a package:
+    spack -C /apps/helpers/spack/intel/ buildcache list python
+
+  Install from buildcache (prefer cached binary, build if missing):
+    spack -C /apps/helpers/spack/intel/ install --use-buildcache prefer python@3.11
+
+  Install from buildcache only (fail if not cached):
+    spack -C /apps/helpers/spack/intel/ install --use-buildcache only python@3.11
+
+  Push a built package to the local Rockfish mirror:
+    spackon --cache-push python@3.11    # safe: intel scope check + dry-run confirm
+
+  Trust buildcache signing keys:
+    spackon --keys trust
+
+── 3-stage collaborative workflow (${SPACK_SCRATCH}) ────────────────────
+
+  Shared scratch space: ${SPACK_SCRATCH}  (all admin members build here)
+
+  Stage 1 — any admin (build + test in personal space):
+    export SPACK_ROOT=${SPACK_SCRATCH}
+    spackon -i locally             # build packages, test locally
+
+  Stage 2 — admin with GPG key (contribute to shared cache):
+    spackon --cache-push python@3.11.9
+    # only pushes packages built with intel scope
+    # shows preview + requires confirmation before pushing
+
+  Stage 3 — admin with trusted key (deploy to shared install_tree):
+    spackon --deploy python@3.11.9
+    # installs --use-buildcache only → ${SPACK_INSTALL_TREE}
+    # fails if package is unsigned or key not trusted
+
+  rdesouz4 approves new admin contributors (one-time per user):
+    spackon --keys trust           # trust a new user's exported key
+
+── GPG key management (for buildcache signing) ─────────────────────────────────
+
+  Keys are stored in ${SPACK_KEYSPOT}/  (shared keyspot for all admins)
+
+  Create a key (ONCE only — do not repeat, spack has issues with duplicates):
+    spackon --keys create
+
+  Export your public key to the shared keyspot (run after create):
+    spackon --keys export
+
+  Trust all admin keys before installing from cache:
+    spackon --keys trust
+
+  List current keys:
+    spackon --keys list
+
+  Manual equivalent (from overspack workflow):
+    keyspot=${SPACK_KEYSPOT}
+    keyname=$USER-spack-key-compiled-v$(date +%Y%m%d)
+    spack gpg export $keyspot/$keyname.pub.gpg
+    for i in $keyspot/*; do spack gpg trust $i; done
+
+── How to create lua modulefile ────────────────────────────────────────────────
+
+  spack -C /apps/helpers/spack/intel/ module lmod refresh 'package_name'
+  spack debug report
+
+EOF
+
+}
+
+
+function spack_update ()
+{
+
+  if [ -z "${SPACK_ROOT}" ]; then
+    echo -e "please to update first activate spackon, then: spackon -u"
+    exit 1
+  fi
+
+  local MODE=${1:-stable}
+  [[ "$MODE" != "dev" ]] && MODE="stable"
+
+  ENVS=$(spack_envs update)
+
+  TARGET_DIR="${SPACK_INSTALL_DIR}/spack"
+
+  # Backup existing spack directory
+  if [ -d "$TARGET_DIR" ]; then
+     MONTH=$(date +%b)
+     DAY=$(date +%d)
+     YEAR=$(date +%Y)
+     NEW_DIR_NAME="${SPACK_INSTALL_DIR}/spack.${MONTH,,}${DAY}.${YEAR}"
+     echo "Moving existing directory $TARGET_DIR to $NEW_DIR_NAME..."
+     mv "$SPACK_ROOT" "$NEW_DIR_NAME"
+  fi
+
+  cd "${SPACK_INSTALL_DIR}/"
+
+  if [ "$MODE" = "dev" ]; then
+    echo "Cloning latest develop branch..."
+    git clone --depth=1 "$SPACK_REPO_URL"
+  else
+    echo "Fetching latest stable release tag..."
+    LATEST_TAG=$(curl -s https://api.github.com/repos/spack/spack/releases/latest \
+                 | grep '"tag_name"' | cut -d'"' -f4)
+    if [ -z "$LATEST_TAG" ]; then
+      echo "Warning: could not fetch latest tag, falling back to develop"
+      git clone --depth=1 "$SPACK_REPO_URL"
+    else
+      echo "Cloning $LATEST_TAG..."
+      git clone --depth=1 -c advice.detachedHead=false --branch "$LATEST_TAG" "$SPACK_REPO_URL"
+    fi
+  fi
+
+  echo "$ENVS"
+
+  # Restore arch config — scopes now live in $ARCH_SCOPE (shared, not in $SPACK_ROOT)
+  if [ -d "$SPACK_ARCH" ]; then
+    echo "Using shared intel config from $SPACK_ARCH"
+  elif compgen -G "$NEW_DIR_NAME/intel*" > /dev/null 2>&1; then
+    echo "Restoring intel config from backup to $ARCH_SCOPE ..."
+    mkdir -p "$ARCH_SCOPE"
+    cp -rpa "$NEW_DIR_NAME"/intel* "$ARCH_SCOPE"/
+    cp -rpa "$NEW_DIR_NAME"/amd* "$ARCH_SCOPE"/ 2>/dev/null || true
+  else
+    echo "Warning: intel config not found — recreating $SPACK_ARCH/config.yaml"
+    mkdir -p "$SPACK_ARCH"
+    cat > "$SPACK_ARCH/config.yaml" << RFEOF
+config:
+  sbang_path: \${SPACK_ROOT}/bin
+  install_tree:
+    # admin shared install tree — use: spack -C ${SPACK_ARCH}
+    # spack -C ${SPACK_ARCH} config get config
+    root: ${SPACK_INSTALL_TREE}
+    projections:
+      all: "{compiler.name}/{compiler.version}/{name}/{version}-{hash:7}"
+  locks: true
+  db_lock_timeout: 120
+  package_lock_timeout: null
+  allow_sgid: true
+  build_jobs: 8
+  shared_linking:
+    type: rpath
+RFEOF
+    cat > "$SPACK_ARCH/mirrors.yaml" << RFEOF
+mirrors:
+  spack-public:
+    url: ${SPACK_MIRROR_PUBLIC}
+    signed: true
+  arch:
+    url: ${SPACK_MIRROR_ARCH}
+    signed: true
+RFEOF
+    echo "  Created: $SPACK_ARCH/config.yaml"
+    echo "  Created: $SPACK_ARCH/mirrors.yaml"
+  fi
+
+  Spack_Up
+
+  echo "ln -s $ENVS $SPACK_ROOT/var/spack/environments"
+  ln -s "$ENVS" "$SPACK_ROOT/var/spack/environments"
+
+  Activate_Spack
+}
+
+function Close_Subshell ()
+{
+   cd
+   echo -e "Closing subshell..."
+
+   kill -1 ${SSID} >> /dev/null 2>&1
+}
+
+function Spack_setup ()
+{
+  if [ -z "${SPACK_ROOT}" ]; then
+     echo -e "\nIf spack is installed for this user: \n\nUse: spackon --activate to activate "
+     exit 1
+  fi
+
+  SPACK_LINUX=${HOME}/.spack/linux
+
+  if [ ! -d "${SPACK_LINUX}" ]; then
+    mkdir -p ${SPACK_LINUX}
+    mkdir -p /apps/helpers/spack/intel/
+
+cat > /apps/helpers/spack/intel/config.yaml << \EOF
+config:
+  sbang_path: ${SPACK_ROOT}/bin
+  install_tree:
+    # if you are in admin group, and want to install packages on Rockfish system
+    # spack -C ${SPACK_ROOT}/arch config get config
+    root: ${SPACK_INSTALL_TREE}
+EOF
+
+cat > ${SPACK_LINUX}/config.yaml << \EOF
+#
+# https://spack.readthedocs.io/en/latest/config_yaml.html
+#
+config:
+  module set:
+    tcl:  ~/modulefiles/tcl
+    lmod: ~/modulefiles/lmod
+  install_tree:
+    root: $spack/opt/spack
+    projections:
+# old syntax   all: "${COMPILERNAME}/${COMPILERVER}/${PACKAGE}/${VERSION}-${HASH}"
+      all: "{compiler.name}/{compiler.version}/{name}/{version}-{hash}"
+  template_dirs:
+  - $spack/share/spack/templates
+  license_dir: $spack/etc/spack/licenses
+  build_stage:
+  - $tempdir/$user/spack-stage
+  - $user_cache_path/stage
+  test_stage: $user_cache_path/test
+  source_cache: $spack/var/spack/cache
+  misc_cache: $user_cache_path/cache
+  connect_timeout: 10
+  verify_ssl: true
+  suppress_gpg_warnings: false
+  install_missing_compilers: false
+  checksum: true
+  deprecated: false
+  dirty: false
+  build_language: C
+  locks: true
+  url_fetch_method: urllib
+  ccache: false
+  concretizer: clingo
+  db_lock_timeout: 3
+  package_lock_timeout: null
+  shared_linking: rpath
+  allow_sgid: true
+  # terminal_title: false
+  install_status: true
+EOF
+
+cat > ${SPACK_LINUX}/modules.yaml << EOF
+#
+# https://spack.readthedocs.io/en/latest/module_file_support.html
+#
+# These are configurations for the module set named "default"
+#
+modules:
+  default:
+    # Where to install modules
+    roots:
+     lmod: ~/modulefiles/lmod
+    # What type of modules to use
+    enable:
+      - lmod
+    lmod:
+      core_compilers:
+        - 'gcc@10.3.0'
+        - 'gcc@9.3.0'
+      hash_length: 7
+      hierarchy:
+        - mpi
+      whitelist:
+       - gcc
+      blacklist:
+       - '%gcc@8.3.1'
+      projections:
+        all:  '{compiler.name}/{compiler.version}/{name}/{version}'
+        ^mpi: '{compiler.name}/{compiler.version}/{name}/{version}/{^mpi.name}/{^mpi.version}'
+      all:
+        autoload: none
+EOF
+
+cat > ${SPACK_LINUX}/concretizer.yaml << EOF
+#
+# https://spack.readthedocs.io/en/latest/build_settings.html#concretizer-options
+#
+concretizer:
+  # Whether to consider installed packages or packages from buildcaches when
+  # concretizing specs. If `true`, we'll try to use as many installs/binaries
+  # as possible, rather than building. If `false`, we'll always give you a fresh
+  # concretization.
+  reuse: true
+  # Options that tune which targets are considered for concretization. The
+  # concretization process is very sensitive to the number targets, and the time
+  # needed to reach a solution increases noticeably with the number of targets
+  # considered.
+  targets:
+    # Determine whether we want to target specific or generic microarchitectures.
+    # An example of the first kind might be for instance "skylake" or "bulldozer",
+    # while generic microarchitectures are for instance "aarch64" or "x86_64_v4".
+    granularity: microarchitectures
+    # If "false" allow targets that are incompatible with the current host (for
+    # instance concretize with target "icelake" while running on "haswell").
+    # If "true" only allow targets that are compatible with the host.
+    host_compatible: true
+  # When "true" concretize root specs of environments together, so that each unique
+  # package in an environment corresponds to one concrete spec. This ensures
+  # environments can always be activated. When "false" perform concretization separately
+  # on each root spec, allowing different versions and variants of the same package in
+  # an environment.
+  unify: when_possible
+EOF
+
+  fi
+
+# https://spack.readthedocs.io/en/latest/build_settings.html#external-packages
+
+  echo -e "\nAdding external compilers... \n"
+  spack compiler find
+  ml intel/2022.2
+  spack compiler find
+}
+
+function Spack_Add_Packages ()
+{
+
+  if [ -z "${SPACK_ROOT}" ]; then
+     echo -e "\nIf spack is installed for this user: \n\nUse: spackon --activate to activate "
+     exit 1
+  fi
+
+  prefix='-f'
+  args=${@#"$prefix"}
+
+  Spack_setup
+
+  if [ -z "${args}" ]; then
+     export BASE_COMPILERS=/apps/linux-centos8-intel
+  else
+     export BASE_COMPILERS=${args}
+  fi
+
+  echo $BASE_COMPILERS
+  SPACK_LINUX=${HOME}/.spack/linux
+
+cat > ${SPACK_LINUX}/packages.yaml << EOF
+packages:
+EOF
+
+  mapfile -t COMPILERS < <(ls -d ${BASE_COMPILERS}/*/ 2>/dev/null | xargs -n1 basename)
+
+  if (( ${#COMPILERS[@]} == 0 )); then
+    echo "No compilers found under $BASE_COMPILERS" >&2
+    exit 1
+  else
+    echo -e "\nSearching for installed packages on: $BASE_COMPILERS"
+    echo -e "\nThis task might take a while. It is needed run once...\n"
+
+  COUNT=0
+
+  for compiler in "${COMPILERS[@]}"; do
+    for package in $(ls -d ${BASE_COMPILERS}/${compiler}/*/ 2>/dev/null | xargs -n1 basename); do
+
+      # Support both spec.json (spack >= 0.17) and legacy spec.yaml
+      SPEC_FILE=""
+      [[ -f "${BASE_COMPILERS}/${compiler}/${package}/.spack/spec.json" ]] && \
+          SPEC_FILE="${BASE_COMPILERS}/${compiler}/${package}/.spack/spec.json"
+      [[ -z "$SPEC_FILE" && -f "${BASE_COMPILERS}/${compiler}/${package}/.spack/spec.yaml" ]] && \
+          SPEC_FILE="${BASE_COMPILERS}/${compiler}/${package}/.spack/spec.yaml"
+      [[ -z "$SPEC_FILE" ]] && continue
+
+      if [[ "$SPEC_FILE" == *.json ]]; then
+          package_name=$(python3 -c "import json,sys; s=json.load(open('$SPEC_FILE')); print(list(s['spec']['nodes'])[0]['name'])" 2>/dev/null)
+      else
+          spec_name=$(sed '2!d' "$SPEC_FILE" 2>/dev/null)
+          package_name=$(echo ${spec_name} | sed 's/..//;s/.$//')
+      fi
+      [[ -z "$package_name" ]] && continue
+
+      package_ver=$(echo $package | awk -F- '{print $(NF-1)}')
+      CC=$(echo ${compiler} | cut -f 1 -d -)
+      VER=$(echo ${compiler} | cut -f 2 -d -)
+
+     (( COUNT++ ))
+
+cat >> ${SPACK_LINUX}/packages.yaml << EOF
+  ${package_name}:
+    buildable: false
+    externals:
+    - spec: $package_name@$package_ver %${CC}@${VER}
+      prefix: $BASE_COMPILERS/$compiler/$package
+EOF
+        done
+      done
+  fi
+
+  echo "${COUNT} packages were added."
+
+  echo -e "\nSearching for additional external software on Rockfish..."
+  spack external find --all --not-buildable
+
+  sleep 3
+
+  if [[ -n ${SPACK_ENV} ]]; then
+     ENV_SPACK=$(echo $SPACK_ENV | rev | cut -d'/' -f 1 | rev)
+     echo $ENV_SPACK
+     spackon -m ${SPACK_LINUX}/packages.yaml ${SPACK_ROOT}/var/spack/environments/${ENV_SPACK}/spack.yaml
+  else
+     if [[ -f $SPACK_ROOT/etc/spack/packages.yaml ]]; then
+        spackon -m ${SPACK_LINUX}/packages.yaml ${HOME}/.spack/packages.yaml $SPACK_ROOT/etc/spack/packages.yaml
+     else
+        spackon -m ${SPACK_LINUX}/packages.yaml ${HOME}/.spack/packages.yaml
+     fi
+  fi
+
+cat > ${SPACK_LINUX}/packages.yaml << EOF
+packages:
+  slurm:
+    externals:
+    - prefix: /cm/shared/apps/slurm/current
+      spec: slurm@20-11-9-1
+    buildable: False
+EOF
+
+}
+
+
+function spack_keys ()
+{
+  if [ -z "${SPACK_ROOT}" ]; then
+    echo -e "\nSpack not active. Run: spackon --activate first."
+    exit 1
+  fi
+
+  local KEYSPOT=${SPACK_KEYSPOT}
+  local ACTION="${2:-list}"   # default: list
+
+  # Only admin members may create or export signing keys
+  _require_admin() {
+    if ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx "$SPACK_DEPLOY_GROUP"; then
+      echo "Error!! '--keys ${1}' requires $SPACK_DEPLOY_GROUP group membership."
+      echo "        Contact $SPACK_ADMIN_USER to get added to $SPACK_DEPLOY_GROUP."
+      return 1
+    fi
+  }
+
+  case "$ACTION" in
+
+    create)
+      _require_admin create || return 1
+      echo -e "\n==> GPG key creation (do this ONCE only — spack has issues with duplicate keys)"
+      echo -e "    See: https://github.com/spack/spack/issues/14720\n"
+      spack gpg init
+      local DEFAULT_NAME="${USER}-admin"
+      local DEFAULT_EMAIL="${USER}@jhu.edu"
+      read -p "Full name  [${DEFAULT_NAME}]: " GPG_NAME
+      read -p "Email      [${DEFAULT_EMAIL}]: " GPG_EMAIL
+      GPG_NAME="${GPG_NAME:-$DEFAULT_NAME}"
+      GPG_EMAIL="${GPG_EMAIL:-$DEFAULT_EMAIL}"
+      spack gpg create "$GPG_NAME" "$GPG_EMAIL"
+      echo -e "\nKey created. Run: spackon --keys export   to publish it to $KEYSPOT"
+      ;;
+
+    export)
+      _require_admin export || return 1
+      local KEYNAME="${USER}-spack-key-compiled-v$(date +%Y%m%d)"
+      mkdir -p "$KEYSPOT"
+      if [ ! -f "$KEYSPOT/${KEYNAME}.pub.gpg" ]; then
+        spack gpg export "$KEYSPOT/${KEYNAME}.pub.gpg"
+        echo "Public key exported  : $KEYSPOT/${KEYNAME}.pub.gpg"
+      else
+        echo "Already exists (pick another name or delete first): $KEYSPOT/${KEYNAME}.pub.gpg"
+      fi
+      if [ ! -f "${HOME}/${KEYNAME}.priv.gpg" ]; then
+        spack gpg export --secret "${HOME}/${KEYNAME}.priv.gpg"
+        echo "Private key exported : ~/${KEYNAME}.priv.gpg  (keep safe!)"
+      else
+        echo "Private key already exists: ~/${KEYNAME}.priv.gpg"
+      fi
+      echo -e "\nOther admins can now trust your key with: spackon --keys trust"
+      ;;
+
+    trust)
+      if [ ! -d "$KEYSPOT" ]; then
+        echo "Key directory not found: $KEYSPOT"
+        exit 1
+      fi
+      echo -e "\n==> Trusting all keys in $KEYSPOT"
+      local COUNT=0
+      for keyfile in "$KEYSPOT"/*; do
+        [ -f "$keyfile" ] || continue
+        spack gpg trust "$keyfile" && echo "  trusted: $keyfile"
+        (( COUNT++ ))
+      done
+      echo -e "\n  $COUNT key(s) trusted."
+      ;;
+
+    list)
+      echo -e "\n==> GPG keys known to spack"
+      spack gpg list
+      echo -e "\n==> Keys in shared keyspot ($KEYSPOT)"
+      ls -1 "$KEYSPOT" 2>/dev/null || echo "  (empty or not found)"
+      ;;
+
+    *)
+      echo "Error: unknown keys action '$ACTION'"
+      echo "Usage: $PROGNAME --keys [create|export|trust|list]"
+      exit 1
+      ;;
+  esac
+}
+
+function Spack_Up ()
+{
+  export SPACK_ROOT="${SPACK_INSTALL_DIR}/spack"
+  source "${SPACK_ROOT}/share/spack/setup-env.sh"
+}
+
+function Activate_Spack ()
+{
+  export SPACK_ROOT=${SPACK_INSTALL_DIR}/spack
+
+# subshell.sh
+  if [[ ${SS} == 1 ]]; then
+     clear
+     echo -e "\nYou are with spack on, please check if the environment is activated!\n"
+     source /apps/helpers/Lmod
+     ml restore
+
+     source ${SPACK_ROOT}/share/spack/setup-env.sh
+
+     export MODULEPATH=${MODULEPATH}:${HOME}/modulefiles/lmod
+     export SPACK_DEBUG_LOG_DIR=${SPACK_ROOT}/var/spack/logs
+     mkdir -p $SPACK_DEBUG_LOG_DIR
+
+     spack env list
+     echo " "
+     echo "Managing environments: "
+     echo " "
+     echo "spack env list"
+     echo "spacktivate locally"
+     echo "spack env activate locally"
+     echo "spack env create my_env "
+     echo "spack env remove my_env "
+     echo " "
+  else
+     if [ -d "${SPACK_ROOT}" ]
+     then
+        clear
+        export SPACK_DEBUG_LOG_DIR=${SPACK_ROOT}/var/spack/logs
+	mkdir -p $SPACK_DEBUG_LOG_DIR
+        export SSID=${BASHPID}
+	export -f spack_stage_and_cd
+        export -f help-all
+        export -f spack_keys
+        export -f usage_root
+        help-all-root () { usage_root; }
+        export -f help-all-root
+        bash --init-file <(
+        echo "
+        echo " ";
+        #export SPACK_ROOT=${SPACK_INSTALL_DIR}/spack
+	source /apps/helpers/Lmod;
+        ml restore;
+	umask 0002;
+        export MODULEPATH=${MODULEPATH}:${HOME}/modulefiles/lmod
+        export SPACK_DEBUG_LOG_DIR=${SPACK_ROOT}/var/spack/logs
+        echo "You are runnnig spack in a SubSHELL: ${BASH_SUBSHELL}";
+        export SS=$BASH_SUBSHELL
+
+        # export PS1='\n\[\e[36m\]\e[0;33m(SPACK on RF)\e[m \h \W > ';
+        export PS1='\[\e[33;1m\]➜\e[0;32m ( spackon )\[\e[0m\] [\[\e[97;1m\]\[\e[1m\]\h\[\e[0m\]\[\e[0m\]]\[\e[39m\] \[\e[36;1m\]\[\e[1m\]\W\[\e[0m\]\[\e[39m\] > ';
+        #export LMOD_PACKAGE_PATH=/apps/v2/a/lmod/.lmodsite;
+        #export LMOD_AVAIL_STYLE=en_grouped;
+        #export MODULEPATH=$MODULEPATH:/apps/v2/a/lmod/Core:${HOME}/modulefiles/lmod;
+        export LMOD_IGNORE_CACHE=1;
+
+        source ${SPACK_ROOT}/share/spack/setup-env.sh
+        echo " ";
+        echo "You are in the spack, please activate an environment!"
+        echo " ";
+        echo "Managing environments: ";
+        echo " ";
+        echo "spack env list ";
+        echo "spacktivate locally";
+        echo "spack env activate locally";
+        echo "spack env create my_env ";
+        echo "spack env remove my_env ";
+        echo " ";
+        spack env list;
+        echo " ";
+        echo "NOTE: The extra modules installed in this environment is only available when it is enabled, "
+        echo "or if LMOD module is created in ${HOME}/modulefiles/lmod"
+        echo " ";
+        echo "How to create extra modules in an environment activated:"
+        echo "\$ spack module lmod refresh 'package_name'"
+        echo "\$ spack debug report"
+        echo " ";
+        echo "Please, type EXIT to return to Rockfish system." ;
+        echo " ";
+ ")
+
+     else
+        echo -e "\nSpack is not installed for this user: \n\nUse: spackon --create.\n"
+     fi
+   fi
+
+   exit 0
+}
+
+function Install_Packages ()
+{
+
+  prefix='-i'
+  env=${@#"$prefix"}
+
+  # echo "env: ${env} @:  ${@}"
+
+  if [[ ( $@ == *'--'* ) || ( "${env}" == '-' ) || ( "${env}" == 'locally -' ) ]]; then
+    clear
+    usage
+    exit 0
+  elif [[ ( $@ == "-i" ) ]]; then
+    sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack install -j 8"
+  elif [[ ( $@ == "-i -push" ) ]]; then
+    if [[ "${USER}" != "rdesouz4" ]]; then
+      echo "Error!! '-i -push' is restricted to rdesouz4."; exit 1
+    fi
+    if ! spack gpg list 2>/dev/null | grep -q 'sec\|pub'; then
+      echo "Error!! No GPG key found. Run: spackon --keys create"; exit 1
+    fi
+    sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack install -j 8 && spack buildcache push arch \$(spack find --no-groups --format '/{hash}')"
+  elif [[ ( $@ == "-i -rf" ) ]]; then
+    sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack -C ${SPACK_ARCH} install -j 8"
+  elif [[ ( $@ == "-i -rf-push" ) ]]; then
+    if [[ "${USER}" != "rdesouz4" ]]; then
+      echo "Error!! '-i -rf-push' is restricted to rdesouz4."; exit 1
+    fi
+    if ! spack gpg list 2>/dev/null | grep -q 'sec\|pub'; then
+      echo "Error!! No GPG key found. Run: spackon --keys create"; exit 1
+    fi
+    sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack -C ${SPACK_ARCH} install -j 8 && spack -C ${SPACK_ARCH} buildcache push arch \$(spack find --no-groups --format '/{hash}')"
+  elif [[ ( $@ == *'-rf'* ) && ( "${env}" != *'locally'* ) ]]; then
+    sbatch -c 8 -t 240 --wrap="spack env activate ${2}; time spack -C ${SPACK_ARCH} install -j 8"
+  elif [[ ( $@ == *'-i locally -rf' ) ]]; then
+    sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack -C ${SPACK_ARCH} install -j 8"
+  elif [[ ( $@ == *'-i locally'* ) && ( "${env}" != *'rf'* ) ]]; then
+    sbatch -c 8 -t 240 --wrap="spack env activate locally; time spack install -j 8"
+  fi
+
+  exit 0
+}
+
+function Install_Spack ()
+{
+  export SPACK_ROOT=${SPACK_INSTALL_DIR}/
+
+  if [ ! -d "${SPACK_ROOT}" ]
+  then
+     echo -e "\nInstalling Spack"
+     echo -e "\nFor more details, see: https://spack.readthedocs.io/en/latest/"
+
+     mkdir -p "${HOME}/modulefiles"
+     mkdir -p "${SPACK_ROOT}"
+     cd "${SPACK_ROOT}"
+     git clone --depth=1 ${SPACK_REPO_URL}
+
+     source /apps/helpers/Lmod
+     ml restore
+
+     export MODULEPATH=${MODULEPATH}:${HOME}/modulefiles/lmod
+     export LMOD_IGNORE_CACHE=1
+
+     source "${SPACK_ROOT}/spack/share/spack/setup-env.sh"
+
+     # Copy shared mirrors config from ARCH_SCOPE — single source of truth
+     # To change mirror paths, edit: ${SPACK_ARCH}/mirrors.yaml
+     if [ -f "${SPACK_ARCH}/mirrors.yaml" ]; then
+       mkdir -p "${HOME}/.spack"
+       cp "${SPACK_ARCH}/mirrors.yaml" "${HOME}/.spack/mirrors.yaml"
+       echo "Mirrors loaded from ${SPACK_ARCH}/mirrors.yaml"
+     else
+       echo "Warning: ${SPACK_ARCH}/mirrors.yaml not found — no mirrors configured"
+     fi
+     spack -C "${SPACK_ARCH}" buildcache keys --install --trust
+
+     Spack_setup
+
+     #spack gpg init
+     #spack gpg create ${USER}
+     spack env create locally
+     spack env activate locally
+     spack concretize -f
+     spack install
+
+     spack env deactivate
+
+     Activate_Spack
+
+  else
+     echo -e "\nSpack is installed for this user: \n\nUse: spackon --activate to activate, or --r to remove it ${SPACK_ROOT}. "
+  fi
+}
+
+function spack_envs ()
+{
+
+    prefix='-e'
+    ENVS=${@#"$prefix"}
+
+    # Check if the resulting value is 'update'
+    if [ "$ENVS" = "update" ]; then
+       ENVS=/data/$(id -gn)/spack_enviroments/$(id -un)
+       if [ -L "$SPACK_ROOT/var/spack/environments" ]; then
+         echo "$ENVS"
+	 return 0
+       fi  
+    else
+       if [ -z "${ENVS}" ]; then
+          echo -e "\nNo path to new enviroment"
+          echo -e "\nUsage: ${PROGNAME} -e /data/$(id -gn)/spack_enviroments/$(id -un)"
+          exit 1
+       else
+          echo -e "\nYour spack environment has already been transferred to: \n"
+          readlink "$SPACK_ROOT/var/spack/environments"
+          echo -e "\nNo action needed. \n"
+	  exit 1
+       fi
+    fi
+   
+    if [ ! -z "${SPACK_ROOT}" ]; then
+ 
+     echo -e "\nMove spack environments" 
+     spack env list
+     echo -e "\nAre you sure you want to move those envs to $ENVS?\n"
+
+     while true; do
+       read -p "Move environments to $ENVS? (yes/no) " yn
+       case "${yn,,}" in
+         yes|y) break ;;
+         no|n)  exit 0 ;;
+         *)     echo "Please answer yes or no." ;;
+       esac
+     done
+         mkdir -p "$ENVS"
+         rsync -rav "$SPACK_ROOT/var/spack/environments/" "$ENVS"
+         rm -rf "$SPACK_ROOT/var/spack/environments/"
+         ln -s "$ENVS" "$SPACK_ROOT/var/spack/environments"
+         echo -e "Spack environments is: $ENVS"
+         exit 0
+  else
+    echo -e "\nSpack is not ON or Installed!\n"
+  fi 
+}
+
+function yaml-merge ()
+{
+    # https://github.com/ricardojacomini/yaml-merge
+    # Usage:
+    #
+    #   yaml-merge.sh file1.yaml [file2.yaml] [file3.yaml] ...
+    #
+    # Merge multiple YAML files into a single YAML file.
+    # Files are merged in order, such that files listed later will override files listed earlier.
+    #
+
+    prefix='-m'
+    YAML=${@#"$prefix"}
+
+    #JAR=$(ls -1 $(dirname "$0")/.yaml-merge.jar | head -1 )
+    JAR=$(dirname "$0")/.yaml-merge.jar
+
+    if [ -z "${YAML}" ] ; then
+      echo -e "\nNo files to merge"
+      exit 1
+    fi
+
+    if [ -z "${JAR}" ] ; then
+      echo -e "\nNo jar matching yaml-merge.jar found."
+      exit 1
+    fi
+
+    $(java -jar "${JAR}" ${YAML} > merged.yaml)
+
+    echo -e "\nThe new merged.yaml file was created!\n"
+
+}
+
+function remove_spack ()
+{
+   cd
+   echo -e "\nRemoving ${SPACK_ROOT} folder...\n"
+   rm -rfR "${SPACK_ROOT}"; rm -rfR "${HOME}/.spack"
+
+   # This subshell will not cause the parent process to exit
+   if [[ ! $(( $BASH_SUBSHELL )) -eq $(( ${SS} )) ]]; then Close_Subshell; fi
+}
+
+
+function Remove_Spack ()
+{
+  export SPACK_ROOT=${HOME}/software_spack
+
+  if [ -d "${SPACK_ROOT}" ]
+  then
+     echo -e "\nUninstalling Spack\n"
+     echo -e "\nAre you sure you want to remove Spack?\n"
+
+     while true; do
+       read -p "Remove spack from ${SPACK_ROOT}? (yes/no) " yn
+       case "${yn,,}" in
+         yes|y) remove_spack; exit 0 ;;
+         no|n)  exit 0 ;;
+         *)     echo "Please answer yes or no." ;;
+       esac
+     done
+  else
+    echo -e "\nSpack is not installed!\n"
+  fi
+}
+
+function usage_root {
+1>&2 cat << \EOF
+
+── Admin operations (rdesouz4 only) ────────────────────────────────────────────
+
+  Run outside spackon subshell. No sudo needed — rdesouz4 owns these dirs.
+
+── Layer 1: Filesystem — lock install_tree to rdesouz4 only (run once) ─────────
+
+  Only rdesouz4 (owner) can write. Others can read/use modules but not install:
+    chmod 2755 ${SPACK_INSTALL_TREE}
+    chmod 2755 ${SPACK_INSTALL_TREE}/.spack-db
+    chmod 2755 ${SPACK_INSTALL_TREE_AMD}
+    chmod 2755 ${SPACK_INSTALL_TREE_AMD}/.spack-db
+    # 2755 = setgid + rwxr-xr-x  (owner write only, group/world read)
+
+  Verify permissions (look for drwxr-sr-x):
+    stat ${SPACK_INSTALL_TREE} | grep Access
+
+  Fix ownership if needed:
+    chown -R rdesouz4:admin ${SPACK_INSTALL_TREE}
+
+── Layer 2: Spack mirror — require GPG signature for cache installs ─────────────
+
+  Set signed: true on arch mirror in /apps/helpers/spack/intel/mirrors.yaml:
+    arch:
+      url: file:///apps/software/spack/mirror-spack/build_cache
+      signed: true   # installs from cache must be signed with a trusted key
+
+  Without a trusted key, --use-buildcache only will fail for other users.
+
+── Full deploy workflow ─────────────────────────────────────────────────────────
+
+  rdesouz4 only (has signing key + owns install_tree):
+    spackon -i -rf-push    →  install to tree + sign + push to rockfish cache
+
+  any admin user (read access, trusted key):
+    spackon --keys trust
+    spack -C /apps/helpers/spack/intel install --use-buildcache only <pkg>
+    # installs signed binary from cache into tree (no source build)
+
+── GPG key storage setup (run once, requires sudo) ─────────────────────────────
+
+  Create shared key directory for buildcache signing:
+    sudo mkdir -p ${SPACK_KEYSPOT}
+    sudo chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP} ${SPACK_KEYSPOT}
+    sudo chmod 2775 ${SPACK_KEYSPOT}
+    # 2775 = setgid + rwxrwxr-x
+    # setgid → new .gpg files inherit ${SPACK_DEPLOY_GROUP} group automatically
+    # after this, rdesouz4 can write freely (no sudo needed for key ops)
+
+── Spack config (intel/config.yaml key settings) ─────────────────────────
+
+  locks: true               # prevent DB corruption during concurrent installs
+  db_lock_timeout: 120      # wait up to 120s for lock (not fail immediately)
+  build_jobs: 8             # shared node — leave room for others
+  install_tree.projections: # consistent paths across all admin users
+    all: "{compiler.name}/{compiler.version}/{name}/{version}-{hash:7}"
+
+EOF
+}
+
+function spack_cache_push ()
+{
+  # admin + GPG key required. Explicit spec or --env only. intel scope enforced.
+  if ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx "$SPACK_DEPLOY_GROUP"; then
+    echo "Error!! --cache-push requires $SPACK_DEPLOY_GROUP group membership."; exit 1
+  fi
+  if ! spack gpg list 2>/dev/null | grep -q 'sec\|pub'; then
+    echo "Error!! No GPG key found. Run: spackon --keys create"; exit 1
+  fi
+
+  local ARG="${2:-}"
+  if [ -z "$ARG" ]; then
+    echo "Error!! Specify a package or use --env:"
+    echo "  spackon --cache-push python@3.11.9"
+    echo "  spackon --cache-push --env locally"
+    exit 1
+  fi
+
+  if [ "$ARG" = "--env" ]; then
+    local ENV="${3:-locally}"
+    echo "==> Resolving hashes for all packages in env: $ENV"
+    HASHES=$(spack -C ${SPACK_ARCH} env activate "$ENV" 2>/dev/null && \
+             spack -C ${SPACK_ARCH} find --no-groups --format '/{hash}' 2>/dev/null)
+  else
+    echo "==> Resolving hash for: $ARG (must be installed under intel scope)"
+    HASHES=$(spack -C ${SPACK_ARCH} find --no-groups --format '/{hash}' "$ARG" 2>/dev/null)
+  fi
+
+  if [ -z "$HASHES" ]; then
+    echo "Error!! Package not found under intel scope. Build with 'spackon -i -rf' first."; exit 1
+  fi
+
+  echo ""
+  echo "==> Dry-run: packages to push to rockfish cache:"
+  spack -C ${SPACK_ARCH} buildcache list --allarch $ARG 2>/dev/null || \
+    spack -C ${SPACK_ARCH} find -lv $ARG 2>/dev/null
+  echo ""
+  read -p "Push to arch buildcache? (yes/no): " yn
+  case "${yn,,}" in
+    yes|y)
+      spack -C ${SPACK_ARCH} buildcache push arch $HASHES
+      echo "==> Done. Other admin users can now deploy with: spackon --deploy $ARG"
+      ;;
+    *) echo "Aborted."; exit 0 ;;
+  esac
+}
+
+function spack_deploy ()
+{
+  # admin + trusted GPG key required. Installs from signed cache only → install_tree.
+  if ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx "$SPACK_DEPLOY_GROUP"; then
+    echo "Error!! --deploy requires $SPACK_DEPLOY_GROUP group membership."; exit 1
+  fi
+  if ! spack gpg list 2>/dev/null | grep -q 'pub'; then
+    echo "Error!! No trusted keys found. Run: spackon --keys trust"; exit 1
+  fi
+
+  local ARG="${2:-}"
+  if [ -z "$ARG" ]; then
+    echo "Error!! Specify a package or use --env:"
+    echo "  spackon --deploy python@3.11.9"
+    echo "  spackon --deploy --env locally"
+    exit 1
+  fi
+
+  if [ "$ARG" = "--env" ]; then
+    local ENV="${3:-locally}"
+    echo "==> Deploying all packages in env '$ENV' from rockfish cache → install_tree"
+    sbatch -c 8 -t 120 --wrap="spack env activate ${ENV}; \
+      spack -C ${SPACK_ARCH} install --use-buildcache only -j 8"
+  else
+    echo "==> Deploying $ARG from rockfish cache → ${SPACK_INSTALL_TREE}"
+    echo "    (will fail if package is unsigned or key not trusted)"
+    sbatch -c 8 -t 120 --wrap="spack -C ${SPACK_ARCH} install --use-buildcache only $ARG"
+  fi
+}
+
+while [ $# -gt 0 ]; do
+  case $1 in
+    -h|--help)
+      usage
+      exit
+      ;;
+    -all|--help-all|help-all)
+      usage_admin
+      exit
+      ;;
+    help-all-root|--help-all-root)
+      usage_root
+      exit
+      ;;
+    -a|--activate)
+      Activate_Spack
+      exit
+      ;;
+    -f)
+      Spack_Add_Packages "${@}"
+      exit
+      ;;
+    -c|--create)
+      Install_Spack
+      exit
+      ;;
+    -r|--remove)
+      Remove_Spack
+      exit
+      ;;
+    -up)
+      Spack_Up
+      exit
+      ;;
+    -i|--install)
+      Spack_Up
+      Install_Packages "${@}"
+      exit
+      ;;
+    -m|--merge)
+      yaml-merge "${@}"
+      exit
+      ;;
+    -e|--env)
+      spack_envs "${@}"
+      exit
+      ;;
+    -u|--update|--upgrade)
+      spack_update "${2:-stable}"
+      exit
+      ;;
+    -k|--keys)
+      spack_keys "${@}"
+      exit
+      ;;
+    --cache-push)
+      spack_cache_push "${@}"
+      exit
+      ;;
+    --deploy)
+      spack_deploy "${@}"
+      exit
+      ;;
+    *)
+      echo "Error!! Unrecognized option: $1"
+      usage
+      exit
+      ;;
+  esac
+  shift
+done
+
+Activate_Spack
