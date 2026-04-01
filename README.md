@@ -6,7 +6,7 @@
 # ============================================================================
 # DISCLAIMER:
 # This script is intended for use on and by the HPC Scientific Software team,
-# at Research Computing at Hopkins University. It is currently in development stage.
+# at Research Computing at Johns Hopkins University. It is currently in development stage.
 # Use at your own risk.
 # ============================================================================
 
