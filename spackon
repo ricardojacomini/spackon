@@ -744,8 +744,8 @@ function stage0_setup ()
       echo "  [created] $aff"
     fi
     sudo chown "root:${SPACK_DEPLOY_GROUP}" "$aff"
-    sudo chmod 2775 "$aff"
-    echo "            chown root:${SPACK_DEPLOY_GROUP}  chmod 2775"
+    sudo chmod 775 "$aff"
+    echo "            chown root:${SPACK_DEPLOY_GROUP}  chmod 775"
   done
   echo ""
 
