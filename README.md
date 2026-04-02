@@ -144,7 +144,7 @@ python --version
 
 If you need a package not available in the module system, you can install your own spack:
 
-### Install spack into ~/software_spack
+### Install spack into `$SPACK_INSTALL_DIR`
 ```bash
 spackon -c
 ```
@@ -173,7 +173,8 @@ spack concretize -f
 ```bash
 spackon -i locally
 ```
-Packages install into ~/software_spack — your personal space only
+
+Packages install into `$SPACK_INSTALL_DIR` — your personal space only
 
 > **Note:** Personal builds do **not** go into the shared install tree (`$SPACK_INSTALL_TREE`).
 > If you need a package added to the shared tree, ask a `$SPACK_DEPLOY_GROUP` member.
@@ -419,7 +420,7 @@ spackon --deploy --env locally
 | Command | Description | Non-admin | Admin (`$SPACK_DEPLOY_GROUP`) | Master (`$SPACK_ADMIN_USER`) |
 |---|---|:---:|:---:|:---:|
 | `spackon` | Activate spack subshell | ✅ | ✅ | ✅ |
-| `spackon -c` | Install spack in `~/software_spack` | ✅ | ✅ | ✅ |
+| `spackon -c` | Install spack in `$SPACK_INSTALL_DIR` | ✅ | ✅ | ✅ |
 | `spackon -i locally` | Build packages in personal spack (SLURM) | ✅ | ✅ | ✅ |
 | `spackon -u` | Update spack to latest stable release | ✅ | ✅ | ✅ |
 | `spackon -u dev` | Update spack to develop branch | ✅ | ✅ | ✅ |
