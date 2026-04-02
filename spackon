@@ -1117,6 +1117,7 @@ function spack_envs ()
 function yaml-merge ()
 {
     # https://github.com/ricardojacomini/yaml-merge
+    # This script uses a Java JAR to merge YAML files. The JAR should be located in the same directory as this script and named .yaml-merge.jar.
     # Usage:
     #
     #   yaml-merge.sh file1.yaml [file2.yaml] [file3.yaml] ...
