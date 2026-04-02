@@ -40,6 +40,7 @@ SPACK_INSTALL_TREE_AMD=/apps/software/spack/amd
 # SPACK_INSTALL_DIR is auto-detected at runtime: /scratch/{affiliation}/{secondary_group}/spack/{user}
 # fallback only if no secondary group found:
 # SPACK_INSTALL_DIR=${HOME}/software_spack. see line 65
+# SPACK_SCRATCH is auto-detected at runtime: /scratch/{affiliation}/admin/spack
 SPACK_SCRATCH=/scratch/admin/spack
 SPACK_KEYSPOT=/apps/software/spack/build/keys
 SPACK_REPO_URL=https://github.com/spack/spack.git
@@ -57,15 +58,15 @@ source "${ARCH_SCOPE}/init"
 _spack_affiliation() {
   if [[ "${USER}" == ssci* ]]; then echo "schmidt"; else echo "jhu"; fi
 }
-_spack_secondary_group() {
-  id -Gn 2>/dev/null | tr ' ' '\n' | grep -v "^users$" | grep -v "^${USER}$" | head -1
-}
-_spack_sec_grp=$(_spack_secondary_group)
-if [[ -n "${_spack_sec_grp}" ]]; then
-  SPACK_INSTALL_DIR="/scratch/$(_spack_affiliation)/${_spack_sec_grp}/spack/${USER}"
-else
-  SPACK_INSTALL_DIR="${HOME}/software_spack"   # fallback if no secondary group
-fi
+
+# Personal spack install dir — isolated per user, non-admin workflow (spackon -c)
+# e.g. rdesouz4  → /scratch/jhu/rdesouz4/spack
+# e.g. ssci-user → /scratch/schmidt/ssci-user/spack
+SPACK_INSTALL_DIR="/scratch/$(_spack_affiliation)/${USER}/spack"
+
+# Shared admin build area — all $SPACK_DEPLOY_GROUP members build here (Stage 1–3)
+# e.g. rdesouz4 → /scratch/jhu/admin/spack
+SPACK_SCRATCH="/scratch/$(_spack_affiliation)/admin/spack"
 
 # Auto-detect CPU architecture scope (mirrors modulefile Lua detection)
 _cpu_vendor=$(lscpu 2>/dev/null | awk '/Vendor ID/ {print $3}')
@@ -1009,7 +1010,7 @@ function Install_Packages ()
 
 function Install_Spack ()
 {
-  export SPACK_ROOT=${SPACK_INSTALL_DIR}/
+  export SPACK_ROOT=${SPACK_INSTALL_DIR}
 
   if [ ! -d "${SPACK_ROOT}" ]
   then

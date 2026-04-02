@@ -120,14 +120,29 @@ See [Commands Reference](#commands-reference) for the full table with per-role a
 
 ## Architecture Overview
 
+### Runtime Variables
+
+| Variable | Path | Who uses it | Purpose |
+|---|---|---|---|
+| `$SPACK_INSTALL_DIR` | `/scratch/{affiliation}/{user}/spack` | per user | Personal spack install (non-admin workflow) |
+| `$SPACK_SCRATCH` | `/scratch/{affiliation}/admin/spack` | all admins share | Shared admin build area (Stage 1–3 workflow) |
+| `$SPACK_SCOPE` | `/apps/helpers/spack/{intel\|amd}` | all | Config scope — auto-set by CPU vendor |
+| `$SPACK_INSTALL_TREE` | `/apps/software/spack/{intel\|amd}` | admins | Shared install tree — auto-set by CPU vendor |
+| `$SPACK_KEYSPOT` | `/apps/software/spack/build/keys` | admins | GPG public key directory |
+
+> `affiliation` = `jhu` (default) or `schmidt` (users whose login starts with `ssci`)
+> Both `$SPACK_INSTALL_DIR` and `$SPACK_SCRATCH` are auto-detected at runtime — no hardcoded paths needed.
+
+### Filesystem Paths
 
 | Path                                          | Purpose/Type              | Notes/Permissions                       |
 |-----------------------------------------------|---------------------------|-----------------------------------------|
-| /scratch/admin/spack                          | Personal build space      | all `$SPACK_DEPLOY_GROUP` write here    |
-| /apps/software/spack/mirror-spack/build_cache | arch buildcache           | signed: true                            |
-| /apps/software/spack/intel                    | Shared install_tree (x86) | `$SPACK_DEPLOY_GROUP` write, 2775       |
-| /apps/software/spack/amd                      | Shared install_tree (AMD) | `$SPACK_DEPLOY_GROUP` write, 2775       |
-| /apps/software/spack/build/keys               | GPG public keys           |                                         |
+| `/scratch/jhu/admin/spack`                    | Shared admin build space  | all `$SPACK_DEPLOY_GROUP` write here    |
+| `/scratch/jhu/{user}/spack`                   | Personal spack install    | per-user, created by `spackon -c`       |
+| `/apps/software/spack/mirror-spack/build_cache` | arch buildcache         | signed: true                            |
+| `/apps/software/spack/intel`                  | Shared install_tree (x86) | `$SPACK_DEPLOY_GROUP` write, 2775       |
+| `/apps/software/spack/amd`                    | Shared install_tree (AMD) | `$SPACK_DEPLOY_GROUP` write, 2775       |
+| `/apps/software/spack/build/keys`             | GPG public keys           | `$SPACK_DEPLOY_GROUP` write, 2775       |
 
 **Config scopes** live in `/apps/helpers/spack/` — shared across all `$SPACK_DEPLOY_GROUP` members:
 
@@ -177,9 +192,9 @@ stat /apps/software/spack/intel | grep Access
 #### Manual equivalent (if needed)
 
 ```bash
-sudo mkdir -p /scratch/admin/spack
-sudo chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP} /scratch/admin/spack
-sudo chmod 2775 /scratch/admin/spack
+sudo mkdir -p $SPACK_SCRATCH
+sudo chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP} $SPACK_SCRATCH
+sudo chmod 2775 $SPACK_SCRATCH
 sudo mkdir -p /apps/software/spack/build/keys
 sudo chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP} /apps/software/spack/build/keys
 sudo chmod 2775 /apps/software/spack/build/keys
@@ -227,7 +242,7 @@ spackon --keys trust
 
 #### Point spack at shared scratch (all admin can write here)
 ```bash
-export SPACK_ROOT=/scratch/admin/spack
+export SPACK_ROOT=$SPACK_SCRATCH
 ```
 
 #### Activate spack subshell
@@ -259,7 +274,7 @@ spack -C $SPACK_SCOPE concretize -f
 spackon -i locally
 ```
 
-##### Packages land in /scratch/admin/spack — shared admin scratch space
+##### Packages land in `$SPACK_SCRATCH` — shared admin scratch space
 ##### Nothing touches the shared install_tree yet
 
 > **Tip:** Use `spack -C $SPACK_SCOPE concretize` to ensure packages resolve against the same
