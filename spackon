@@ -697,6 +697,55 @@ EOF
 }
 
 
+function stage0_setup ()
+{
+  # Must be SPACK_ADMIN_USER
+  if [[ "${USER}" != "${SPACK_ADMIN_USER}" ]]; then
+    echo "Error!! 'stage0-setup' is restricted to ${SPACK_ADMIN_USER}."
+    echo "        You are: ${USER}"
+    exit 1
+  fi
+
+  # Must have sudo
+  if ! sudo -n true 2>/dev/null; then
+    echo "Error!! 'stage0-setup' requires sudo privileges."
+    echo "        Run: sudo -v   to authenticate first, then retry."
+    exit 1
+  fi
+
+  echo "==> Stage 0: creating shared directories for spackon"
+  echo ""
+
+  local dirs=(
+    "${SPACK_SCRATCH}"
+    "${SPACK_INSTALL_TREE}"
+    "${SPACK_INSTALL_TREE_AMD}"
+    "${SPACK_KEYSPOT}"
+  )
+
+  for dir in "${dirs[@]}"; do
+    if [ -d "$dir" ]; then
+      echo "  [exists]  $dir"
+    else
+      sudo mkdir -p "$dir"
+      echo "  [created] $dir"
+    fi
+    sudo chown "${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP}" "$dir"
+    sudo chmod 2775 "$dir"
+    echo "            chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP}  chmod 2775"
+  done
+
+  echo ""
+  echo "==> Done. Verify with:"
+  echo "    stat ${SPACK_SCRATCH} | grep Access"
+  echo "    stat ${SPACK_INSTALL_TREE} | grep Access"
+  echo ""
+  echo "==> Next: each admin runs once:"
+  echo "    spackon --keys create"
+  echo "    spackon --keys export"
+  echo "    # then master runs: spackon --keys trust"
+}
+
 function spack_keys ()
 {
   if [ -z "${SPACK_ROOT}" ]; then
@@ -1139,15 +1188,23 @@ function usage_master {
     spack -C /apps/helpers/spack/intel install --use-buildcache only <pkg>
     # installs signed binary from cache into tree (no source build)
 
-── GPG key storage setup (run once, requires sudo) ─────────────────────────────
+── Stage 0: one-time system setup (${SPACK_ADMIN_USER} only, requires sudo) ─────
 
-  Create shared key directory for buildcache signing:
+  Run once to create all shared directories with correct ownership:
+    spackon --setup
+
+  Creates with sudo + chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP} + chmod 2775:
+    ${SPACK_SCRATCH}
+    ${SPACK_INSTALL_TREE}
+    ${SPACK_INSTALL_TREE_AMD}
+    ${SPACK_KEYSPOT}
+
+  Manual equivalent (if --setup is not available):
     sudo mkdir -p ${SPACK_KEYSPOT}
     sudo chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP} ${SPACK_KEYSPOT}
     sudo chmod 2775 ${SPACK_KEYSPOT}
     # 2775 = setgid + rwxrwxr-x
-    # setgid → new .gpg files inherit ${SPACK_DEPLOY_GROUP} group automatically
-    # after this, ${SPACK_ADMIN_USER} can write freely (no sudo needed for key ops)
+    # setgid → new files inherit ${SPACK_DEPLOY_GROUP} group automatically
 
 ── Spack config (intel/config.yaml key settings) ─────────────────────────
 
@@ -1290,6 +1347,10 @@ while [ $# -gt 0 ]; do
       ;;
     -u|--update|--upgrade)
       spack_update "${2:-stable}"
+      exit
+      ;;
+    --setup|--stage0-setup)
+      stage0_setup
       exit
       ;;
     -k|--keys)

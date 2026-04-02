@@ -148,41 +148,24 @@ See [Commands Reference](#commands-reference) for the full table with per-role a
 ![3-Stage Collaborative Workflow – Flow Diagram](diagram.png)
 
  🌐 [Interactive version](flow-diagram.html) — open in browser 
- 
+
 ---
 
 ### Stage 0 — One-Time Setup 
-> #### ${SPACK_ADMIN_USER} runs once
+> #### ${SPACK_ADMIN_USER} runs once, requires sudo
 
-#### Create shared directories
-
-#### Shared scratch space for all admin builds
+#### Create all shared directories automatically
 
 ```bash
-sudo mkdir -p /scratch/admin/spack
-sudo chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP} /scratch/admin/spack
-sudo chmod 2775 /scratch/admin/spack
-```
-#### 2775 = setgid + rwxrwxr-x
-#### setgid ensures new files inherit `$SPACK_DEPLOY_GROUP` group automatically
-
-
-#### Lock install_tree: `$SPACK_DEPLOY_GROUP` group write, world read
-
-```bash
-chmod 2775 /apps/software/spack/intel
-chmod 2775 /apps/software/spack/intel/.spack-db
-chmod 2775 /apps/software/spack/amd
-chmod 2775 /apps/software/spack/amd/.spack-db
+sudo -v               # authenticate sudo first
+spackon --setup       # creates + chowns + chmods all dirs
 ```
 
-#### GPG key directory (requires sudo — one time only)
-
-```bash
-sudo mkdir -p /apps/software/spack/build/keys
-sudo chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP} /apps/software/spack/build/keys
-sudo chmod 2775 /apps/software/spack/build/keys
-```
+This creates with `chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP}` and `chmod 2775`:
+- `$SPACK_SCRATCH` — shared scratch space for all admin builds
+- `$SPACK_INSTALL_TREE` — shared install tree (intel)
+- `$SPACK_INSTALL_TREE_AMD` — shared install tree (amd)
+- `$SPACK_KEYSPOT` — GPG key directory
 
 #### Verify permissions
 
@@ -190,6 +173,17 @@ sudo chmod 2775 /apps/software/spack/build/keys
 stat /apps/software/spack/intel | grep Access
 ```
 #### Expected: drwxrwsr-x  (2775 with setgid 's' in group bits)
+
+#### Manual equivalent (if needed)
+
+```bash
+sudo mkdir -p /scratch/admin/spack
+sudo chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP} /scratch/admin/spack
+sudo chmod 2775 /scratch/admin/spack
+sudo mkdir -p /apps/software/spack/build/keys
+sudo chown ${SPACK_ADMIN_USER}:${SPACK_DEPLOY_GROUP} /apps/software/spack/build/keys
+sudo chmod 2775 /apps/software/spack/build/keys
+```
 
 ---
 
@@ -363,6 +357,7 @@ spackon --deploy --env locally
 | `help-admin` | Admin operations help | ❌ | ✅ | ✅ |
 | `spackon -i -push` | Install locally + push to cache (SLURM) | ❌ | ❌ | ✅ |
 | `spackon -i -arch-push` | Install into shared tree + push to cache (SLURM) | ❌ | ❌ | ✅ |
+| `spackon --setup` | Create all shared dirs with correct ownership (requires sudo) | ❌ | ❌ | ✅ |
 | `help-master` | Master-only operations help | ❌ | ❌ | ✅ |
 
 ---
