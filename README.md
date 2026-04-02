@@ -147,8 +147,8 @@ See [Commands Reference](#commands-reference) for the full table with per-role a
 
 ![3-Stage Collaborative Workflow – Flow Diagram](diagram.png)
 
- 🌐 [Interactive version](flow-diagram.html) — open in browser or embed in SharePoint
-
+ 🌐 [Interactive version](flow-diagram.html) — open in browser 
+ 
 ---
 
 ### Stage 0 — One-Time Setup 
