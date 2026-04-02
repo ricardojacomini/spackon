@@ -24,7 +24,7 @@ user="$(/usr/bin/whoami)"
 # If already inside a spackon subshell, show full help instead of nesting
 # (guard is re-checked after functions are defined — see bottom of script)
 _SPACKON_NESTED=0
-[[ "${PS1}" == *"( spackon )"* && $# -eq 0 ]] && _SPACKON_NESTED=1
+[[ "${SPACKON_ACTIVE}" == "1" && $# -eq 0 ]] && _SPACKON_NESTED=1
 
 # Single hardcoded value — path to shared config (needed to bootstrap)
 ARCH_SCOPE=/apps/helpers/spack
@@ -932,6 +932,7 @@ function Activate_Spack ()
 
         # export PS1='\n\[\e[36m\]\e[0;33m(SPACK on RF)\e[m \h \W > ';
         export PS1='\[\e[33;1m\]➜\e[0;32m ( spackon )\[\e[0m\] [\[\e[97;1m\]\[\e[1m\]\h\[\e[0m\]\[\e[0m\]]\[\e[39m\] \[\e[36;1m\]\[\e[1m\]\W\[\e[0m\]\[\e[39m\] > ';
+        export SPACKON_ACTIVE=1;
         #export LMOD_PACKAGE_PATH=/apps/v2/a/lmod/.lmodsite;
         #export LMOD_AVAIL_STYLE=en_grouped;
         #export MODULEPATH=$MODULEPATH:/apps/v2/a/lmod/Core:${HOME}/modulefiles/lmod;
@@ -1348,7 +1349,7 @@ fi
 while [ $# -gt 0 ]; do
   case $1 in
     -h|--help)
-      if [[ "${PS1}" == *"( spackon )"* ]]; then
+      if [[ "${SPACKON_ACTIVE}" == "1" ]]; then
         usage_all
       else
         usage
