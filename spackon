@@ -916,9 +916,9 @@ function Activate_Spack ()
         echo "
         echo " ";
         #export SPACK_ROOT=${SPACK_INSTALL_DIR}/spack
-	source /apps/Lmod;
+      	source /apps/Lmod;
         ml restore;
-	umask 0002;
+	      umask 0002;
         export MODULEPATH=${MODULEPATH}:${HOME}/modulefiles/lmod
         export SPACK_DEBUG_LOG_DIR=${SPACK_ROOT}/var/spack/logs
         echo "You are runnnig spack in a SubSHELL: ${BASH_SUBSHELL}";
