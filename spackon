@@ -21,13 +21,10 @@ PROGNAME=$(basename "$0")
 list_all_users="yes"
 user="$(/usr/bin/whoami)"
 
-# If already inside a spackon subshell, show help instead of nesting
-if [[ "${PS1}" == *"( spackon )"* ]]; then
-  if [[ $# -eq 0 ]]; then
-    usage
-    exit 0
-  fi
-fi
+# If already inside a spackon subshell, show full help instead of nesting
+# (guard is re-checked after functions are defined — see bottom of script)
+_SPACKON_NESTED=0
+[[ "${PS1}" == *"( spackon )"* && $# -eq 0 ]] && _SPACKON_NESTED=1
 
 # Single hardcoded value — path to shared config (needed to bootstrap)
 ARCH_SCOPE=/apps/helpers/spack
@@ -1341,6 +1338,12 @@ function spack_deploy ()
     sbatch -c 8 -t 120 --wrap="spack -C ${SPACK_SCOPE} install --use-buildcache only $ARG"
   fi
 }
+
+# Nested subshell check — deferred so usage_all is already defined
+if [[ "${_SPACKON_NESTED}" -eq 1 ]]; then
+  usage_all
+  exit 0
+fi
 
 while [ $# -gt 0 ]; do
   case $1 in
