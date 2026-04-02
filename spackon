@@ -734,6 +734,21 @@ function stage0_setup ()
   echo "==> Stage 0: creating shared directories for spackon"
   echo ""
 
+  # Affiliation root dirs under /scratch — group-writable so users can mkdir their own subtrees
+  local aff_dirs=("/scratch/jhu" "/scratch/schmidt")
+  for aff in "${aff_dirs[@]}"; do
+    if [ -d "$aff" ]; then
+      echo "  [exists]  $aff"
+    else
+      sudo mkdir -p "$aff"
+      echo "  [created] $aff"
+    fi
+    sudo chown "root:${SPACK_DEPLOY_GROUP}" "$aff"
+    sudo chmod 2775 "$aff"
+    echo "            chown root:${SPACK_DEPLOY_GROUP}  chmod 2775"
+  done
+  echo ""
+
   local dirs=(
     "${SPACK_SCRATCH}"
     "${SPACK_INSTALL_TREE}"
