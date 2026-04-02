@@ -1012,7 +1012,7 @@ function Install_Spack ()
 {
   export SPACK_ROOT=${SPACK_INSTALL_DIR}
 
-  if [ ! -d "${SPACK_ROOT}" ]
+  if [ ! -d "${SPACK_ROOT}/spack" ]
   then
      echo -e "\nInstalling Spack"
      echo -e "\nFor more details, see: https://spack.readthedocs.io/en/latest/"
@@ -1160,9 +1160,9 @@ function remove_spack ()
 
 function Remove_Spack ()
 {
-  export SPACK_ROOT=${SPACK_INSTALL_DIR}/spack
+  export SPACK_ROOT=${SPACK_INSTALL_DIR}
 
-  if [ -d "${SPACK_ROOT}" ]
+  if [ -d "${SPACK_ROOT}/spack" ]
   then
      echo -e "\nUninstalling Spack\n"
      echo -e "\nAre you sure you want to remove Spack?\n"
