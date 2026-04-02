@@ -608,8 +608,8 @@ EOF
 
   echo -e "\nAdding external compilers... \n"
   spack compiler find
-  ml intel/2022.2
-  spack compiler find
+  # ml intel/2022.2
+  # spack compiler find
 }
 
 function Spack_Add_Packages ()

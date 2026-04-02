@@ -15,8 +15,74 @@
 
 ---
 
+## Getting Started
+
+### Master — one time ever (before anyone else)
+
+```bash
+sudo -v
+spackon --setup        # creates all shared dirs with correct ownership
+```
+
+---
+
+### Admin user — first time setup
+
+```bash
+# 1. Create and export your GPG signing key (once per user)
+spackon --keys create
+spackon --keys export
+
+# 2. Ask master to trust your key
+#    master runs: spackon --keys trust
+```
+
+---
+
+### Admin user — build and deploy a package
+
+```bash
+# Stage 1: build in shared scratch
+export SPACK_ROOT=$SPACK_SCRATCH
+spackon
+spack env create locally
+spack env activate locally
+spack add python@3.11.9
+spack concretize -f
+spackon -i locally           # submits SLURM job (8 cores, 4 h)
+
+# Stage 2: push signed package to cache
+spackon --cache-push python@3.11.9
+
+# Stage 3: deploy from cache to shared install_tree
+spackon --keys trust
+spackon --deploy python@3.11.9
+```
+
+---
+
+### Regular user (non-admin) — personal spack
+
+```bash
+# 1. Install personal spack (once)
+spackon -c
+
+# 2. Activate spack subshell
+spackon
+
+# 3. Create environment and build
+spack env create locally
+spack env activate locally
+spack add python@3.11.9
+spack concretize -f
+spackon -i locally           # submits SLURM job
+```
+
+---
+
 ## Table of Contents
 
+- [Getting Started](#getting-started)
 - [Quick Start](#quick-start)
 - [For Regular Users (non-spack)](#for-regular-users-non-spack)
 - [Architecture Overview](#architecture-overview)
