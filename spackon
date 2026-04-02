@@ -21,6 +21,14 @@ PROGNAME=$(basename "$0")
 list_all_users="yes"
 user="$(/usr/bin/whoami)"
 
+# If already inside a spackon subshell, show help instead of nesting
+if [[ "${PS1}" == *"( spackon )"* ]]; then
+  if [[ $# -eq 0 ]]; then
+    usage
+    exit 0
+  fi
+fi
+
 # Single hardcoded value — path to shared config (needed to bootstrap)
 ARCH_SCOPE=/apps/helpers/spack
 
