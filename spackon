@@ -188,17 +188,18 @@ function usage_all {
     spack find                            # list installed packages
     spack find -pl                        # list with paths
 
-── Build cache — install from signed binaries ──────────────────────────────────
+── Build cache — install from signed binaries (any user) ───────────────────────
 
     spack install --use-buildcache prefer python@3.11.9
     # prefers cached binary, falls back to source if not cached
 
     spack buildcache list python          # search cache for a package
 
-── GPG keys ────────────────────────────────────────────────────────────────────
+── GPG keys (any user) ─────────────────────────────────────────────────────────
 
     ${PROGNAME} --keys list               # list trusted keys
     ${PROGNAME} --keys trust              # trust all keys in ${SPACK_KEYSPOT}
+    # Note: --keys create and --keys export require ${SPACK_DEPLOY_GROUP} membership
 
 ── More help ────────────────────────────────────────────────────────────────────
 
