@@ -1017,7 +1017,7 @@ function Install_Spack ()
      echo -e "\nInstalling Spack"
      echo -e "\nFor more details, see: https://spack.readthedocs.io/en/latest/"
 
-     mkdir -p "${HOME}/modulefiles"
+     mkdir -p "${HOME}/modulefiles/lmod"
      mkdir -p "${SPACK_ROOT}"
      cd "${SPACK_ROOT}"
      git clone --depth=1 ${SPACK_REPO_URL}
