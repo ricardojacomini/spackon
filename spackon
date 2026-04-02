@@ -37,7 +37,9 @@ SPACK_DEPLOY_GROUP=spack           # or admin make sure that group was created
 SPACK_ADMIN_USER=master
 SPACK_INSTALL_TREE=/apps/software/spack/intel
 SPACK_INSTALL_TREE_AMD=/apps/software/spack/amd
-SPACK_INSTALL_DIR=${HOME}/software_spack
+# SPACK_INSTALL_DIR is auto-detected at runtime: /scratch/{affiliation}/{secondary_group}/spack/{user}
+# fallback only if no secondary group found:
+# SPACK_INSTALL_DIR=${HOME}/software_spack. see line 65
 SPACK_SCRATCH=/scratch/admin/spack
 SPACK_KEYSPOT=/apps/software/spack/build/keys
 SPACK_REPO_URL=https://github.com/spack/spack.git
@@ -48,6 +50,22 @@ INITEOF
   echo "==> Created: ${ARCH_SCOPE}/init  (edit to customize)" >&2
 fi
 source "${ARCH_SCOPE}/init"
+
+# Auto-detect personal spack install dir under /scratch/{affiliation}/{secondary_group}/spack/{user}
+# Affiliation: usernames starting with "ssci" → schmidt, otherwise → jhu
+# Secondary group: first group from id -Gn that is not "users" and not the username itself
+_spack_affiliation() {
+  if [[ "${USER}" == ssci* ]]; then echo "schmidt"; else echo "jhu"; fi
+}
+_spack_secondary_group() {
+  id -Gn 2>/dev/null | tr ' ' '\n' | grep -v "^users$" | grep -v "^${USER}$" | head -1
+}
+_spack_sec_grp=$(_spack_secondary_group)
+if [[ -n "${_spack_sec_grp}" ]]; then
+  SPACK_INSTALL_DIR="/scratch/$(_spack_affiliation)/${_spack_sec_grp}/spack/${USER}"
+else
+  SPACK_INSTALL_DIR="${HOME}/software_spack"   # fallback if no secondary group
+fi
 
 # Auto-detect CPU architecture scope (mirrors modulefile Lua detection)
 _cpu_vendor=$(lscpu 2>/dev/null | awk '/Vendor ID/ {print $3}')
@@ -105,7 +123,7 @@ function usage_all {
 
 ── Stage 1: Personal spack setup (any user) ────────────────────────────────────
 
-  Install spack in ~/software_spack (run once):
+  Install spack in \$SPACK_INSTALL_DIR (run once):
     ${PROGNAME} -c
 
   Activate spack subshell:
@@ -140,7 +158,7 @@ function usage_all {
     Or install in another environment:
       ${PROGNAME} -i my_env
 
-  Packages install into ~/software_spack — your personal space only.
+  Packages install into \$SPACK_INSTALL_DIR — your personal space only.
   Personal builds do NOT go into the shared install tree.
   To request a package in the shared tree, contact ${SPACK_ADMIN_USER}.
 
@@ -845,7 +863,7 @@ function Activate_Spack ()
   if [[ ${SS} == 1 ]]; then
      clear
      echo -e "\nYou are with spack on, please check if the environment is activated!\n"
-     source /apps/helpers/Lmod
+     # source /apps/Lmod
      ml restore
 
      source ${SPACK_ROOT}/share/spack/setup-env.sh
@@ -882,7 +900,7 @@ function Activate_Spack ()
         echo "
         echo " ";
         #export SPACK_ROOT=${SPACK_INSTALL_DIR}/spack
-	source /apps/helpers/Lmod;
+	source /apps/Lmod;
         ml restore;
 	umask 0002;
         export MODULEPATH=${MODULEPATH}:${HOME}/modulefiles/lmod
@@ -988,8 +1006,8 @@ function Install_Spack ()
      cd "${SPACK_ROOT}"
      git clone --depth=1 ${SPACK_REPO_URL}
 
-     source /apps/helpers/Lmod
-     ml restore
+     [ -f /apps/Lmod ] && source /apps/Lmod
+     command -v ml &>/dev/null && ml restore
 
      export MODULEPATH=${MODULEPATH}:${HOME}/modulefiles/lmod
      export LMOD_IGNORE_CACHE=1
@@ -998,6 +1016,9 @@ function Install_Spack ()
 
      # Copy shared mirrors config from ARCH_SCOPE — single source of truth
      # To change mirror paths, edit: ${SPACK_SCOPE}/mirrors.yaml
+     # Ensure shared scope config exists before any spack -C calls
+     Spack_setup
+
      if [ -f "${SPACK_SCOPE}/mirrors.yaml" ]; then
        mkdir -p "${HOME}/.spack"
        cp "${SPACK_SCOPE}/mirrors.yaml" "${HOME}/.spack/mirrors.yaml"
@@ -1005,9 +1026,10 @@ function Install_Spack ()
      else
        echo "Warning: ${SPACK_SCOPE}/mirrors.yaml not found — no mirrors configured"
      fi
-     spack -C "${SPACK_SCOPE}" buildcache keys --install --trust
 
-     Spack_setup
+     if [ -d "${SPACK_SCOPE}" ]; then
+       spack -C "${SPACK_SCOPE}" buildcache keys --install --trust 2>/dev/null || true
+     fi
 
      #spack gpg init
      #spack gpg create ${USER}
@@ -1122,7 +1144,7 @@ function remove_spack ()
 
 function Remove_Spack ()
 {
-  export SPACK_ROOT=${HOME}/software_spack
+  export SPACK_ROOT=${SPACK_INSTALL_DIR}/spack
 
   if [ -d "${SPACK_ROOT}" ]
   then
