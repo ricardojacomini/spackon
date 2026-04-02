@@ -1348,7 +1348,11 @@ fi
 while [ $# -gt 0 ]; do
   case $1 in
     -h|--help)
-      usage
+      if [[ "${PS1}" == *"( spackon )"* ]]; then
+        usage_all
+      else
+        usage
+      fi
       exit
       ;;
     -all|--help-all|help-all)
